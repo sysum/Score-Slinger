@@ -319,11 +319,34 @@ export default function HomeScreen() {
       const asset = pickerResult.assets[0];
       let photoDate: string | null = null;
       if (asset.exif) {
-        const exifDate = (asset.exif as any).DateTimeOriginal || (asset.exif as any).DateTime || (asset.exif as any).DateTimeDigitized;
+        const exifData = asset.exif as any;
+        const findExifDate = (obj: any): string | null => {
+          if (!obj || typeof obj !== "object") return null;
+          const dateKeys = [
+            "DateTimeOriginal", "DateTime", "DateTimeDigitized",
+            "CreateDate", "ModifyDate", "DateCreated",
+          ];
+          for (const key of dateKeys) {
+            if (obj[key] && typeof obj[key] === "string") return obj[key];
+          }
+          for (const key of Object.keys(obj)) {
+            if (typeof obj[key] === "object" && obj[key] !== null) {
+              const found = findExifDate(obj[key]);
+              if (found) return found;
+            }
+          }
+          return null;
+        };
+        const exifDate = findExifDate(exifData);
         if (exifDate) {
           const parsed = exifDate.replace(/^(\d{4}):(\d{2}):(\d{2})/, "$1-$2-$3");
-          photoDate = new Date(parsed).toISOString();
+          const d = new Date(parsed);
+          if (!isNaN(d.getTime())) {
+            photoDate = d.toISOString();
+          }
         }
+        console.log("EXIF data keys:", JSON.stringify(Object.keys(exifData)));
+        console.log("EXIF date found:", exifDate);
       }
       setPlayedDate(photoDate);
       setImageUri(asset.uri);
