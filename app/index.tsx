@@ -84,6 +84,60 @@ const SORT_LABELS: Record<SortOption, string> = {
   score_lowest: "Team Score (Lowest First)",
 };
 
+type DateFormatKey =
+  | "us_full"
+  | "eu_full"
+  | "iso_full"
+  | "mmm_full"
+  | "dd_mmm_full"
+  | "us_date"
+  | "eu_date"
+  | "iso_date"
+  | "mmm_date"
+  | "long_date";
+
+const DATE_FORMAT_LABELS: Record<DateFormatKey, string> = {
+  us_full: "MM/DD/YYYY h:mm A",
+  eu_full: "DD/MM/YYYY h:mm A",
+  iso_full: "YYYY-MM-DD HH:mm",
+  mmm_full: "Jan 15, 2025 3:30 PM",
+  dd_mmm_full: "15 Jan 2025 3:30 PM",
+  us_date: "MM/DD/YYYY",
+  eu_date: "DD/MM/YYYY",
+  iso_date: "YYYY-MM-DD",
+  mmm_date: "Jan 15, 2025",
+  long_date: "January 15, 2025",
+};
+
+const pad2 = (n: number) => n.toString().padStart(2, "0");
+
+const formatWithKey = (iso: string, key: DateFormatKey): string => {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  const M = d.getMonth() + 1;
+  const D = d.getDate();
+  const Y = d.getFullYear();
+  const h24 = d.getHours();
+  const h12 = h24 % 12 || 12;
+  const min = pad2(d.getMinutes());
+  const ampm = h24 >= 12 ? "PM" : "AM";
+  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const monthsFull = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+  switch (key) {
+    case "us_full": return `${pad2(M)}/${pad2(D)}/${Y} ${h12}:${min} ${ampm}`;
+    case "eu_full": return `${pad2(D)}/${pad2(M)}/${Y} ${h12}:${min} ${ampm}`;
+    case "iso_full": return `${Y}-${pad2(M)}-${pad2(D)} ${pad2(h24)}:${min}`;
+    case "mmm_full": return `${months[d.getMonth()]} ${D}, ${Y} ${h12}:${min} ${ampm}`;
+    case "dd_mmm_full": return `${D} ${months[d.getMonth()]} ${Y} ${h12}:${min} ${ampm}`;
+    case "us_date": return `${pad2(M)}/${pad2(D)}/${Y}`;
+    case "eu_date": return `${pad2(D)}/${pad2(M)}/${Y}`;
+    case "iso_date": return `${Y}-${pad2(M)}-${pad2(D)}`;
+    case "mmm_date": return `${months[d.getMonth()]} ${D}, ${Y}`;
+    case "long_date": return `${monthsFull[d.getMonth()]} ${D}, ${Y}`;
+    default: return d.toLocaleDateString();
+  }
+};
+
 const sortHistory = (items: HistoryItem[], sort: SortOption): HistoryItem[] => {
   const sorted = [...items];
   switch (sort) {
@@ -208,19 +262,15 @@ function HistoryCard({
   item,
   onPress,
   onDelete,
+  dateFormat,
 }: {
   item: HistoryItem;
   onPress: () => void;
   onDelete: () => void;
+  dateFormat: DateFormatKey;
 }) {
-  const dateSource = item.playedDate || item.timestamp;
-  const date = new Date(dateSource);
-  const timeStr = date.toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  const dateSource = item.playedDate || new Date(item.timestamp).toISOString();
+  const timeStr = formatWithKey(typeof dateSource === "string" ? dateSource : new Date(dateSource).toISOString(), dateFormat);
 
   const translateX = useSharedValue(0);
   const isSwiped = useRef(false);
@@ -309,7 +359,9 @@ export default function HomeScreen() {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const historyRef = useRef<HistoryItem[]>([]);
   const [showHistory, setShowHistory] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [sortOption, setSortOption] = useState<SortOption>("upload_recent");
+  const [dateFormat, setDateFormat] = useState<DateFormatKey>("mmm_full");
   const [showSortPicker, setShowSortPicker] = useState(false);
   const [playedDate, setPlayedDate] = useState<string | null>(null);
   const [editingDate, setEditingDate] = useState(false);
@@ -335,6 +387,10 @@ export default function HomeScreen() {
       const savedSort = await AsyncStorage.getItem("sort_option");
       if (savedSort && savedSort in SORT_LABELS) {
         setSortOption(savedSort as SortOption);
+      }
+      const savedDateFormat = await AsyncStorage.getItem("date_format");
+      if (savedDateFormat && savedDateFormat in DATE_FORMAT_LABELS) {
+        setDateFormat(savedDateFormat as DateFormatKey);
       }
     } catch {}
   };
@@ -584,15 +640,7 @@ export default function HomeScreen() {
   };
 
   const formatPlayedDate = (iso: string) => {
-    const d = new Date(iso);
-    return d.toLocaleDateString(undefined, {
-      weekday: "short",
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
+    return formatWithKey(iso, dateFormat);
   };
 
   const [webDateStr, setWebDateStr] = useState("");
@@ -694,6 +742,130 @@ export default function HomeScreen() {
     } catch {}
   };
 
+  const handleDateFormatChange = async (key: DateFormatKey) => {
+    setDateFormat(key);
+    try {
+      await AsyncStorage.setItem("date_format", key);
+    } catch {}
+  };
+
+  const handleDefaultSortFromSettings = async (option: SortOption) => {
+    setSortOption(option);
+    try {
+      await AsyncStorage.setItem("sort_option", option);
+    } catch {}
+  };
+
+  if (showSettings) {
+    return (
+      <View style={[styles.container, { paddingTop: insets.top + webTopInset }]}>
+        <View style={styles.header}>
+          <Pressable
+            onPress={() => setShowSettings(false)}
+            style={({ pressed }) => [styles.headerBtn, pressed && { opacity: 0.6 }]}
+          >
+            <Ionicons name="arrow-back" size={24} color={Colors.text} />
+          </Pressable>
+          <Text style={styles.headerTitle}>Settings</Text>
+          <View style={{ width: 40 }} />
+        </View>
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={[
+            styles.settingsContent,
+            { paddingBottom: insets.bottom + webBottomInset + 20 },
+          ]}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.settingsSection}>
+            <Text style={styles.settingsSectionTitle}>Date Format</Text>
+            <Text style={styles.settingsSectionSubtitle}>Applied everywhere dates are shown</Text>
+            <View style={styles.settingsOptionsList}>
+              {(Object.keys(DATE_FORMAT_LABELS) as DateFormatKey[]).map((key) => (
+                <Pressable
+                  key={key}
+                  onPress={() => handleDateFormatChange(key)}
+                  style={({ pressed }) => [
+                    styles.settingsOptionRow,
+                    dateFormat === key && styles.settingsOptionActive,
+                    pressed && { opacity: 0.6 },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.settingsOptionText,
+                      dateFormat === key && styles.settingsOptionTextActive,
+                    ]}
+                  >
+                    {DATE_FORMAT_LABELS[key]}
+                  </Text>
+                  {dateFormat === key && (
+                    <Ionicons name="checkmark" size={20} color={Colors.accent} />
+                  )}
+                </Pressable>
+              ))}
+            </View>
+          </View>
+
+          <View style={styles.settingsSection}>
+            <Text style={styles.settingsSectionTitle}>Default Sort</Text>
+            <Text style={styles.settingsSectionSubtitle}>Applied to the results list</Text>
+            <View style={styles.settingsOptionsList}>
+              {(Object.keys(SORT_LABELS) as SortOption[]).map((option) => (
+                <Pressable
+                  key={option}
+                  onPress={() => handleDefaultSortFromSettings(option)}
+                  style={({ pressed }) => [
+                    styles.settingsOptionRow,
+                    sortOption === option && styles.settingsOptionActive,
+                    pressed && { opacity: 0.6 },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.settingsOptionText,
+                      sortOption === option && styles.settingsOptionTextActive,
+                    ]}
+                  >
+                    {SORT_LABELS[option]}
+                  </Text>
+                  {sortOption === option && (
+                    <Ionicons name="checkmark" size={20} color={Colors.accent} />
+                  )}
+                </Pressable>
+              ))}
+            </View>
+          </View>
+
+          <View style={styles.settingsSection}>
+            <Text style={styles.settingsSectionTitle}>Export Scores</Text>
+            <Text style={styles.settingsSectionSubtitle}>Download your scan data</Text>
+            <View style={styles.settingsOptionsList}>
+              <View style={styles.settingsExportRow}>
+                <View style={styles.settingsExportLeft}>
+                  <Ionicons name="document-text-outline" size={20} color={Colors.textSecondary} />
+                  <Text style={styles.settingsOptionText}>Export as CSV</Text>
+                </View>
+                <View style={styles.comingSoonBadge}>
+                  <Text style={styles.comingSoonText}>Coming Soon</Text>
+                </View>
+              </View>
+              <View style={styles.settingsExportRow}>
+                <View style={styles.settingsExportLeft}>
+                  <Ionicons name="code-slash-outline" size={20} color={Colors.textSecondary} />
+                  <Text style={styles.settingsOptionText}>Export as JSON</Text>
+                </View>
+                <View style={styles.comingSoonBadge}>
+                  <Text style={styles.comingSoonText}>Coming Soon</Text>
+                </View>
+              </View>
+            </View>
+          </View>
+        </ScrollView>
+      </View>
+    );
+  }
+
   if (showHistory) {
     const sortedHistory = sortHistory(history, sortOption);
     return (
@@ -736,6 +908,7 @@ export default function HomeScreen() {
                 item={item}
                 onPress={() => viewHistoryItem(item)}
                 onDelete={() => setPendingDeleteId(item.id)}
+                dateFormat={dateFormat}
               />
             ))
           )}
@@ -1041,7 +1214,12 @@ export default function HomeScreen() {
   return (
     <View style={[styles.container, { paddingTop: insets.top + webTopInset }]}>
       <View style={styles.header}>
-        <View style={{ width: 40 }} />
+        <Pressable
+          onPress={() => setShowSettings(true)}
+          style={({ pressed }) => [styles.headerBtn, pressed && { opacity: 0.6 }]}
+        >
+          <Ionicons name="settings-outline" size={22} color={Colors.text} />
+        </Pressable>
         <Text style={styles.headerTitle}>Score Slinger</Text>
         <Pressable
           onPress={() => setShowHistory(true)}
@@ -1137,6 +1315,7 @@ export default function HomeScreen() {
                     item={item}
                     onPress={() => viewHistoryItem(item)}
                     onDelete={() => setPendingDeleteId(item.id)}
+                    dateFormat={dateFormat}
                   />
                 ))}
               </View>
@@ -1765,5 +1944,77 @@ const styles = StyleSheet.create({
   sortOptionTextActive: {
     fontFamily: "DMSans_700Bold",
     color: Colors.accent,
+  },
+  settingsContent: {
+    paddingHorizontal: 20,
+    gap: 28,
+    paddingTop: 8,
+  },
+  settingsSection: {
+    gap: 8,
+  },
+  settingsSectionTitle: {
+    fontFamily: "DMSans_700Bold",
+    fontSize: 17,
+    color: Colors.text,
+  },
+  settingsSectionSubtitle: {
+    fontFamily: "DMSans_400Regular",
+    fontSize: 13,
+    color: Colors.textMuted,
+    marginBottom: 4,
+  },
+  settingsOptionsList: {
+    backgroundColor: Colors.surface,
+    borderRadius: 14,
+    overflow: "hidden" as const,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+  },
+  settingsOptionRow: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    justifyContent: "space-between" as const,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.cardBorder,
+  },
+  settingsOptionActive: {
+    backgroundColor: "rgba(0, 229, 204, 0.06)",
+  },
+  settingsOptionText: {
+    fontFamily: "DMSans_400Regular",
+    fontSize: 15,
+    color: Colors.textSecondary,
+  },
+  settingsOptionTextActive: {
+    fontFamily: "DMSans_600SemiBold",
+    color: Colors.accent,
+  },
+  settingsExportRow: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    justifyContent: "space-between" as const,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.cardBorder,
+  },
+  settingsExportLeft: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    gap: 12,
+  },
+  comingSoonBadge: {
+    backgroundColor: Colors.surfaceLight,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  comingSoonText: {
+    fontFamily: "DMSans_500Medium",
+    fontSize: 11,
+    color: Colors.textMuted,
   },
 });
