@@ -28,7 +28,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         messages: [
           {
             role: "system",
-            content: `You are a video game scoreboard parser. Analyze the provided screenshot and extract score information. Return ONLY valid JSON with this exact structure:
+            content: `You are a scoreboard parser for a theme park ride game (like Marvel's Web Slingers or similar). You MUST extract numbers from the image and return valid JSON. Never refuse to parse — always do your best to read the numbers.
+
+The scoreboard layout is:
+- CENTER: A large team score (the biggest number on screen, e.g. 881,900). This is the teamScore.
+- CENTER BOTTOM: Three objective scores labeled "FIGHT GIANT BOT" (left), "RESCUE SPIDER-MAN" (middle), "DESTROY GIANT BOT" (right), each with a number below.
+- LEFT SIDE: Two player score panels stacked vertically. The top-left panel is BLUE, the bottom-left panel is YELLOW. Each shows a score number.
+- RIGHT SIDE: Two player score panels stacked vertically. The top-right panel is RED, the bottom-right panel is PURPLE. Each shows a score number.
+
+Return ONLY valid JSON with this exact structure:
 {
   "teamScore": <number>,
   "objectiveScores": {
@@ -41,21 +49,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     {
       "name": "<player name or identifier>",
       "score": <number>,
-      "color": "<one of: blue, red, yellow, purple - based on the player's UI color in the game>"
+      "color": "<one of: blue, red, yellow, purple>"
     }
   ]
 }
 
 Rules:
-- Extract up to 4 team members maximum
-- Assign colors based on the actual colors visible in the game UI for each player
-- The valid player colors are: blue, red, yellow, purple
-- If colors aren't distinguishable, assign them in order: blue, red, yellow, purple
-- There may be multiple team-related scores visible. The overall Team score (teamScore) is the LARGEST number visible in the image. Do NOT sum individual player scores — look for the biggest number displayed, which represents the overall team score.
-- Below the main team score there are additional objective scores displayed left to right. Extract them as objectiveScores: "fightGiantBot" (leftmost), "rescueSpiderMan" (middle), "destroyGiantBot" (rightmost). If any are not visible, use 0.
-- If you can identify the game, include its name
-- If you cannot parse scores from the image, return: {"error": "Could not parse scores from this image"}
-- Return ONLY the JSON, no markdown or explanation`
+- There are exactly 4 players: blue (top-left), yellow (bottom-left), red (top-right), purple (bottom-right)
+- Read the score number from each colored panel
+- The teamScore is the largest number displayed in the center of the screen
+- Read the three objective scores from below the team score
+- Numbers may have commas (e.g. 881,900). Remove commas and return as integers
+- The game is likely "Web Slingers: A Spider-Man Adventure" or similar
+- ALWAYS return the JSON with your best reading of the numbers. Never return an error if you can see any numbers at all
+- Return ONLY the JSON, no markdown, no explanation, no code fences`
           },
           {
             role: "user",
@@ -68,7 +75,7 @@ Rules:
               },
               {
                 type: "text",
-                text: "Parse this game scoreboard screenshot and extract all player scores and the total team score.",
+                text: "Parse this theme park ride game scoreboard. Extract the large team score in the center, the three objective scores (Fight Giant Bot, Rescue Spider-Man, Destroy Giant Bot) below it, and the four player scores from the colored panels (blue top-left, yellow bottom-left, red top-right, purple bottom-right).",
               },
             ],
           },
@@ -77,6 +84,7 @@ Rules:
       });
 
       const content = response.choices[0]?.message?.content || "";
+      console.log("AI response content:", content);
 
       let parsed;
       try {
@@ -84,9 +92,11 @@ Rules:
         if (jsonMatch) {
           parsed = JSON.parse(jsonMatch[0]);
         } else {
+          console.error("No JSON found in AI response");
           parsed = { error: "Could not parse scores from this image" };
         }
-      } catch {
+      } catch (parseErr) {
+        console.error("JSON parse error:", parseErr, "Content:", content);
         parsed = { error: "Could not parse scores from this image" };
       }
 
