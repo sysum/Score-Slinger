@@ -502,6 +502,34 @@ export default function HomeScreen() {
   const [webDateStr, setWebDateStr] = useState("");
   const [webTimeStr, setWebTimeStr] = useState("");
 
+  const formatDateInput = (raw: string) => {
+    const digits = raw.replace(/\D/g, "").slice(0, 8);
+    let formatted = "";
+    for (let i = 0; i < digits.length; i++) {
+      if (i === 4 || i === 6) formatted += "-";
+      formatted += digits[i];
+    }
+    return formatted;
+  };
+
+  const formatTimeInput = (raw: string) => {
+    const digits = raw.replace(/\D/g, "").slice(0, 4);
+    let formatted = "";
+    for (let i = 0; i < digits.length; i++) {
+      if (i === 2) formatted += ":";
+      formatted += digits[i];
+    }
+    return formatted;
+  };
+
+  const handleWebDateChange = (val: string) => {
+    setWebDateStr(formatDateInput(val));
+  };
+
+  const handleWebTimeChange = (val: string) => {
+    setWebTimeStr(formatTimeInput(val));
+  };
+
   const openDateEditor = () => {
     const d = playedDate ? new Date(playedDate) : new Date();
     setEditDate(d);
@@ -526,46 +554,36 @@ export default function HomeScreen() {
     }
   };
 
-  const applyWebDate = () => {
-    const parts = webDateStr.split("-");
-    if (parts.length === 3) {
-      const y = parseInt(parts[0]), m = parseInt(parts[1]) - 1, d = parseInt(parts[2]);
-      if (!isNaN(y) && !isNaN(m) && !isNaN(d)) {
-        const updated = new Date(editDate);
-        updated.setFullYear(y, m, d);
-        if (!isNaN(updated.getTime())) setEditDate(updated);
-      }
+  const parseDateStr = (str: string) => {
+    const digits = str.replace(/\D/g, "");
+    if (digits.length >= 8) {
+      return {
+        y: parseInt(digits.slice(0, 4)),
+        m: parseInt(digits.slice(4, 6)) - 1,
+        d: parseInt(digits.slice(6, 8)),
+      };
     }
+    return null;
   };
 
-  const applyWebTime = () => {
-    const parts = webTimeStr.split(":");
-    if (parts.length === 2) {
-      const h = parseInt(parts[0]), min = parseInt(parts[1]);
-      if (!isNaN(h) && !isNaN(min)) {
-        const updated = new Date(editDate);
-        updated.setHours(h, min);
-        if (!isNaN(updated.getTime())) setEditDate(updated);
-      }
+  const parseTimeStr = (str: string) => {
+    const digits = str.replace(/\D/g, "");
+    if (digits.length >= 4) {
+      return { h: parseInt(digits.slice(0, 2)), min: parseInt(digits.slice(2, 4)) };
     }
+    return null;
   };
 
   const saveDateEdit = () => {
     let finalDate = new Date(editDate);
     if (Platform.OS === "web") {
-      const dateParts = webDateStr.split("-");
-      if (dateParts.length === 3) {
-        const y = parseInt(dateParts[0]), m = parseInt(dateParts[1]) - 1, d = parseInt(dateParts[2]);
-        if (!isNaN(y) && !isNaN(m) && !isNaN(d)) {
-          finalDate.setFullYear(y, m, d);
-        }
+      const dp = parseDateStr(webDateStr);
+      if (dp && !isNaN(dp.y) && !isNaN(dp.m) && !isNaN(dp.d)) {
+        finalDate.setFullYear(dp.y, dp.m, dp.d);
       }
-      const timeParts = webTimeStr.split(":");
-      if (timeParts.length === 2) {
-        const h = parseInt(timeParts[0]), min = parseInt(timeParts[1]);
-        if (!isNaN(h) && !isNaN(min)) {
-          finalDate.setHours(h, min);
-        }
+      const tp = parseTimeStr(webTimeStr);
+      if (tp && !isNaN(tp.h) && !isNaN(tp.min)) {
+        finalDate.setHours(tp.h, tp.min);
       }
     }
     updatePlayedDate(finalDate.toISOString());
@@ -806,10 +824,11 @@ export default function HomeScreen() {
                     <TextInput
                       style={styles.modalInput}
                       value={webDateStr}
-                      onChangeText={setWebDateStr}
-                      onBlur={applyWebDate}
+                      onChangeText={handleWebDateChange}
                       placeholder="YYYY-MM-DD"
                       placeholderTextColor={Colors.textMuted}
+                      keyboardType="number-pad"
+                      maxLength={10}
                     />
                   </View>
                   <View style={styles.datePickerField}>
@@ -817,10 +836,11 @@ export default function HomeScreen() {
                     <TextInput
                       style={styles.modalInput}
                       value={webTimeStr}
-                      onChangeText={setWebTimeStr}
-                      onBlur={applyWebTime}
+                      onChangeText={handleWebTimeChange}
                       placeholder="HH:MM"
                       placeholderTextColor={Colors.textMuted}
+                      keyboardType="number-pad"
+                      maxLength={5}
                     />
                   </View>
                 </View>
