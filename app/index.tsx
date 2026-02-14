@@ -194,7 +194,7 @@ export default function HomeScreen() {
         result: parsed,
         timestamp: Date.now(),
         imageUri: uri,
-        playedDate: dateStr || new Date().toISOString(),
+        playedDate: dateStr || undefined,
       };
       const updated = [newItem, ...history].slice(0, 50);
       setHistory(updated);
@@ -275,15 +275,12 @@ export default function HomeScreen() {
           photoDate = new Date(parsed).toISOString();
         }
       }
-      if (!photoDate) {
-        photoDate = new Date().toISOString();
-      }
       setPlayedDate(photoDate);
       setImageUri(asset.uri);
       setResult(null);
       setShowHistory(false);
       setCurrentHistoryId(null);
-      await analyzeImage(asset.uri, photoDate);
+      await analyzeImage(asset.uri, photoDate ?? undefined);
     } catch (err) {
       console.error("Image pick error:", err);
     }
