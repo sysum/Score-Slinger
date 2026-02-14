@@ -41,7 +41,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     {
       "name": "<player name or identifier>",
       "score": <number>,
-      "color": "<one of: red, blue, green, yellow - based on the player's UI color in the game>"
+      "color": "<one of: blue, red, yellow, purple - based on the player's UI color in the game>"
     }
   ]
 }
@@ -49,7 +49,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 Rules:
 - Extract up to 4 team members maximum
 - Assign colors based on the actual colors visible in the game UI for each player
-- If colors aren't distinguishable, assign them in order: blue, red, green, yellow
+- The valid player colors are: blue, red, yellow, purple
+- If colors aren't distinguishable, assign them in order: blue, red, yellow, purple
 - There may be multiple team-related scores visible. The overall Team score (teamScore) is the LARGEST number visible in the image. Do NOT sum individual player scores — look for the biggest number displayed, which represents the overall team score.
 - Below the main team score there are additional objective scores displayed left to right. Extract them as objectiveScores: "fightGiantBot" (leftmost), "rescueSpiderMan" (middle), "destroyGiantBot" (rightmost). If any are not visible, use 0.
 - If you can identify the game, include its name

@@ -13,10 +13,10 @@ const Colors = {
   danger: "#FF4D6A",
   success: "#00E5CC",
   playerColors: {
-    red: "#FF4D6A",
     blue: "#4D8AFF",
-    green: "#4DFF91",
+    red: "#FF4D6A",
     yellow: "#FFD84D",
+    purple: "#A855F7",
   },
   light: {
     text: "#000",

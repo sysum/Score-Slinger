@@ -36,7 +36,7 @@ const { width: SCREEN_WIDTH } = Dimensions.get("window");
 interface PlayerScore {
   name: string;
   score: number;
-  color: "red" | "blue" | "green" | "yellow";
+  color: "blue" | "red" | "yellow" | "purple";
 }
 
 interface ObjectiveScores {
@@ -61,18 +61,20 @@ interface HistoryItem {
 }
 
 const PLAYER_COLOR_MAP: Record<string, string> = {
-  red: Colors.playerColors.red,
   blue: Colors.playerColors.blue,
-  green: Colors.playerColors.green,
+  red: Colors.playerColors.red,
   yellow: Colors.playerColors.yellow,
+  purple: Colors.playerColors.purple,
 };
 
 const PLAYER_COLOR_LABELS: Record<string, string> = {
-  red: "Red",
   blue: "Blue",
-  green: "Green",
+  red: "Red",
   yellow: "Yellow",
+  purple: "Purple",
 };
+
+const PLAYER_COLOR_ORDER = ["blue", "red", "yellow", "purple"];
 
 function PlayerCard({ player, index }: { player: PlayerScore; index: number }) {
   const color = PLAYER_COLOR_MAP[player.color] || Colors.accent;
@@ -455,9 +457,11 @@ export default function HomeScreen() {
 
               <View style={styles.playersSection}>
                 <Text style={styles.sectionTitle}>Individual Scores</Text>
-                {result.players.map((player, i) => (
-                  <PlayerCard key={`${player.name}-${i}`} player={player} index={i} />
-                ))}
+                {[...result.players]
+                  .sort((a, b) => PLAYER_COLOR_ORDER.indexOf(a.color) - PLAYER_COLOR_ORDER.indexOf(b.color))
+                  .map((player, i) => (
+                    <PlayerCard key={`${player.name}-${i}`} player={player} index={i} />
+                  ))}
               </View>
             </>
           )}
