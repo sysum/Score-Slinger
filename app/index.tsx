@@ -53,6 +53,7 @@ interface ObjectiveScores {
 
 interface ParsedResult {
   teamScore: number;
+  achievement?: string | null;
   objectiveScores?: ObjectiveScores;
   gameName: string;
   players: PlayerScore[];

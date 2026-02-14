@@ -45,6 +45,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             content: `You are a scoreboard parser for a theme park ride game (like Marvel's Web Slingers or similar). You MUST extract numbers from the image and return valid JSON. Never refuse to parse — always do your best to read the numbers.
 
 The scoreboard layout is:
+- CENTER TOP: Above the large team score number, there is a text label. It may say "TEAM SCORE" or it may show an achievement like "BEST THIS HOUR", "2ND THIS HOUR", "3RD THIS HOUR", etc. This is the achievement field.
 - CENTER: A large team score (the biggest number on screen, e.g. 881,900). This is the teamScore.
 - CENTER BOTTOM: Three objective scores labeled "FIGHT GIANT BOT" (left), "RESCUE SPIDER-MAN" (middle), "DESTROY GIANT BOT" (right), each with a number below.
 - LEFT SIDE: Two player score panels stacked vertically. The top-left panel is BLUE, the bottom-left panel is YELLOW. Each shows a score number.
@@ -53,6 +54,7 @@ The scoreboard layout is:
 Return ONLY valid JSON with this exact structure:
 {
   "teamScore": <number>,
+  "achievement": "<text above the team score, or null if it just says 'TEAM SCORE'>",
   "objectiveScores": {
     "fightGiantBot": <number>,
     "rescueSpiderMan": <number>,
@@ -72,6 +74,7 @@ Rules:
 - There are exactly 4 players: blue (top-left), yellow (bottom-left), red (top-right), purple (bottom-right)
 - Read the score number from each colored panel
 - The teamScore is the largest number displayed in the center of the screen
+- Read the text label ABOVE the team score. If it says "TEAM SCORE", set achievement to null. If it says anything else (like "BEST THIS HOUR", "2ND THIS HOUR", "3RD THIS HOUR"), set achievement to that text exactly as shown
 - Read the three objective scores from below the team score
 - Numbers may have commas (e.g. 881,900). Remove commas and return as integers
 - The game is likely "Web Slingers: A Spider-Man Adventure" or similar
