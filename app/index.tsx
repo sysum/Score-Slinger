@@ -32,6 +32,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { getApiUrl } from "@/lib/query-client";
 import { fetch } from "expo/fetch";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import Colors from "@/constants/colors";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -222,7 +223,9 @@ export default function HomeScreen() {
   const [showHistory, setShowHistory] = useState(false);
   const [playedDate, setPlayedDate] = useState<string | null>(null);
   const [editingDate, setEditingDate] = useState(false);
-  const [dateInput, setDateInput] = useState("");
+  const [editDate, setEditDate] = useState(new Date());
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showTimePicker, setShowTimePicker] = useState(false);
   const [currentHistoryId, setCurrentHistoryId] = useState<string | null>(null);
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
@@ -438,23 +441,32 @@ export default function HomeScreen() {
   };
 
   const openDateEditor = () => {
-    if (playedDate) {
-      const d = new Date(playedDate);
-      const month = String(d.getMonth() + 1).padStart(2, "0");
-      const day = String(d.getDate()).padStart(2, "0");
-      const year = d.getFullYear();
-      const hours = String(d.getHours()).padStart(2, "0");
-      const mins = String(d.getMinutes()).padStart(2, "0");
-      setDateInput(`${month}/${day}/${year} ${hours}:${mins}`);
-    }
+    setEditDate(playedDate ? new Date(playedDate) : new Date());
+    setShowDatePicker(false);
+    setShowTimePicker(false);
     setEditingDate(true);
   };
 
-  const saveDateEdit = () => {
-    const parsed = new Date(dateInput);
-    if (!isNaN(parsed.getTime())) {
-      updatePlayedDate(parsed.toISOString());
+  const onDateChange = (_event: any, selectedDate?: Date) => {
+    if (Platform.OS !== "web") setShowDatePicker(false);
+    if (selectedDate) {
+      const updated = new Date(editDate);
+      updated.setFullYear(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate());
+      setEditDate(updated);
     }
+  };
+
+  const onTimeChange = (_event: any, selectedTime?: Date) => {
+    if (Platform.OS !== "web") setShowTimePicker(false);
+    if (selectedTime) {
+      const updated = new Date(editDate);
+      updated.setHours(selectedTime.getHours(), selectedTime.getMinutes());
+      setEditDate(updated);
+    }
+  };
+
+  const saveDateEdit = () => {
+    updatePlayedDate(editDate.toISOString());
     setEditingDate(false);
   };
 
@@ -680,15 +692,85 @@ export default function HomeScreen() {
           <Pressable style={styles.modalOverlay} onPress={() => setEditingDate(false)}>
             <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
               <Text style={styles.modalTitle}>Edit Played Date</Text>
-              <Text style={styles.modalHint}>Format: MM/DD/YYYY HH:MM</Text>
-              <TextInput
-                style={styles.modalInput}
-                value={dateInput}
-                onChangeText={setDateInput}
-                placeholder="01/15/2026 14:30"
-                placeholderTextColor={Colors.textMuted}
-                autoFocus
-              />
+
+              {Platform.OS === "web" ? (
+                <View style={styles.datePickerRow}>
+                  <View style={styles.datePickerField}>
+                    <Text style={styles.datePickerLabel}>Date</Text>
+                    <TextInput
+                      style={styles.modalInput}
+                      value={`${editDate.getFullYear()}-${String(editDate.getMonth() + 1).padStart(2, "0")}-${String(editDate.getDate()).padStart(2, "0")}`}
+                      onChangeText={(val) => {
+                        const parts = val.split("-");
+                        if (parts.length === 3) {
+                          const d = new Date(editDate);
+                          d.setFullYear(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+                          if (!isNaN(d.getTime())) setEditDate(d);
+                        }
+                      }}
+                      placeholder="YYYY-MM-DD"
+                      placeholderTextColor={Colors.textMuted}
+                    />
+                  </View>
+                  <View style={styles.datePickerField}>
+                    <Text style={styles.datePickerLabel}>Time</Text>
+                    <TextInput
+                      style={styles.modalInput}
+                      value={`${String(editDate.getHours()).padStart(2, "0")}:${String(editDate.getMinutes()).padStart(2, "0")}`}
+                      onChangeText={(val) => {
+                        const parts = val.split(":");
+                        if (parts.length === 2) {
+                          const d = new Date(editDate);
+                          d.setHours(parseInt(parts[0]), parseInt(parts[1]));
+                          if (!isNaN(d.getTime())) setEditDate(d);
+                        }
+                      }}
+                      placeholder="HH:MM"
+                      placeholderTextColor={Colors.textMuted}
+                    />
+                  </View>
+                </View>
+              ) : (
+                <View style={styles.nativePickerContainer}>
+                  <Pressable
+                    onPress={() => setShowDatePicker(true)}
+                    style={styles.pickerTrigger}
+                  >
+                    <Ionicons name="calendar-outline" size={18} color={Colors.accent} />
+                    <Text style={styles.pickerTriggerText}>
+                      {editDate.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
+                    </Text>
+                  </Pressable>
+                  {showDatePicker && (
+                    <DateTimePicker
+                      value={editDate}
+                      mode="date"
+                      display="spinner"
+                      onChange={onDateChange}
+                      themeVariant="dark"
+                    />
+                  )}
+                  <Pressable
+                    onPress={() => setShowTimePicker(true)}
+                    style={styles.pickerTrigger}
+                  >
+                    <Ionicons name="time-outline" size={18} color={Colors.accent} />
+                    <Text style={styles.pickerTriggerText}>
+                      {editDate.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
+                    </Text>
+                  </Pressable>
+                  {showTimePicker && (
+                    <DateTimePicker
+                      value={editDate}
+                      mode="time"
+                      display="spinner"
+                      onChange={onTimeChange}
+                      themeVariant="dark"
+                    />
+                  )}
+                </View>
+              )}
+
               <View style={styles.modalButtons}>
                 <Pressable
                   onPress={() => setEditingDate(false)}
@@ -1342,5 +1424,40 @@ const styles = StyleSheet.create({
     fontFamily: "DMSans_600SemiBold",
     fontSize: 14,
     color: "#fff",
+  },
+  datePickerRow: {
+    flexDirection: "row" as const,
+    gap: 12,
+    marginBottom: 20,
+    marginTop: 12,
+  },
+  datePickerField: {
+    flex: 1,
+  },
+  datePickerLabel: {
+    fontFamily: "DMSans_500Medium",
+    fontSize: 12,
+    color: Colors.textSecondary,
+    marginBottom: 6,
+  },
+  nativePickerContainer: {
+    gap: 8,
+    marginTop: 12,
+    marginBottom: 20,
+  },
+  pickerTrigger: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    gap: 10,
+    backgroundColor: Colors.background,
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+  },
+  pickerTriggerText: {
+    fontFamily: "DMSans_500Medium",
+    fontSize: 16,
+    color: Colors.text,
   },
 });
