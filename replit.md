@@ -56,6 +56,7 @@ Pre-built integration modules exist but are supplementary to the core app:
 - **Development**: Two processes — `expo:dev` for the mobile/web client, `server:dev` for the Express API
 - **Production Build**: `expo:static:build` creates static web assets via a custom `scripts/build.js`, `server:build` bundles the server with esbuild
 - **Production Run**: `server:prod` serves both the static Expo web build and the API
+- **Web Build**: Build script runs `npx expo export --platform web` to create `dist/` with static web assets. Server detects `dist/index.html` and serves the web app to browser visitors, with SPA catch-all routing. Falls back to Expo Go landing page if no web build exists
 
 ### Key Design Decisions
 - **Monorepo Structure**: Frontend and backend share code through `shared/` directory (schema, types)
