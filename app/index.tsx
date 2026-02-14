@@ -249,7 +249,7 @@ export default function HomeScreen() {
         result: parsed,
         timestamp: Date.now(),
         imageUri: uri,
-        playedDate: dateStr || undefined,
+        playedDate: dateStr || new Date().toISOString(),
       };
       const updated = [newItem, ...history].slice(0, 50);
       setHistory(updated);
@@ -317,7 +317,7 @@ export default function HomeScreen() {
       if (pickerResult.canceled) return;
 
       const asset = pickerResult.assets[0];
-      let photoDate: string | null = null;
+      let photoDate: string = new Date().toISOString();
       if (asset.exif) {
         const exifData = asset.exif as any;
         const findExifDate = (obj: any): string | null => {
@@ -345,8 +345,6 @@ export default function HomeScreen() {
             photoDate = d.toISOString();
           }
         }
-        console.log("EXIF data keys:", JSON.stringify(Object.keys(exifData)));
-        console.log("EXIF date found:", exifDate);
       }
       setPlayedDate(photoDate);
       setImageUri(asset.uri);
@@ -422,7 +420,7 @@ export default function HomeScreen() {
   const viewHistoryItem = (item: HistoryItem) => {
     setResult(item.result);
     setImageUri(item.imageUri || null);
-    setPlayedDate(item.playedDate || null);
+    setPlayedDate(item.playedDate || new Date(item.timestamp).toISOString());
     setCurrentHistoryId(item.id);
     setShowHistory(false);
   };
