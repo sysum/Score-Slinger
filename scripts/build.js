@@ -496,6 +496,61 @@ function updateManifests(manifests, timestamp, baseUrl, assetsByHash) {
   console.log("Manifests updated");
 }
 
+async function buildWebExport(domain) {
+  console.log("Building Expo web export...");
+
+  const distPath = path.join(process.cwd(), "dist");
+  if (fs.existsSync(distPath)) {
+    fs.rmSync(distPath, { recursive: true });
+  }
+
+  return new Promise((resolve, reject) => {
+    const webBuild = spawn("npx", ["expo", "export", "--platform", "web"], {
+      stdio: ["ignore", "pipe", "pipe"],
+      env: {
+        ...process.env,
+        EXPO_PUBLIC_DOMAIN: domain,
+      },
+    });
+
+    let stderr = "";
+    if (webBuild.stdout) {
+      webBuild.stdout.on("data", (data) => {
+        const output = data.toString().trim();
+        if (output) console.log(`[Web Build] ${output}`);
+      });
+    }
+    if (webBuild.stderr) {
+      webBuild.stderr.on("data", (data) => {
+        stderr += data.toString();
+        const output = data.toString().trim();
+        if (output) console.error(`[Web Build] ${output}`);
+      });
+    }
+
+    webBuild.on("close", (code) => {
+      if (code === 0 && fs.existsSync(path.join(distPath, "index.html"))) {
+        console.log("Web export complete");
+        resolve();
+      } else {
+        console.error("Web export failed (code " + code + "), continuing with native-only build");
+        resolve();
+      }
+    });
+
+    webBuild.on("error", (err) => {
+      console.error("Web export error:", err.message);
+      resolve();
+    });
+
+    setTimeout(() => {
+      webBuild.kill();
+      console.error("Web export timeout, continuing with native-only build");
+      resolve();
+    }, 300000);
+  });
+}
+
 async function main() {
   console.log("Building static Expo Go deployment...");
 
@@ -507,6 +562,8 @@ async function main() {
 
   prepareDirectories(timestamp);
   clearMetroCache();
+
+  await buildWebExport(domain);
 
   await startMetro(domain);
 
