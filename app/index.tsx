@@ -373,6 +373,8 @@ export default function HomeScreen() {
   const [editDate, setEditDate] = useState(new Date());
   const [currentHistoryId, setCurrentHistoryId] = useState<string | null>(null);
   const [playerNames, setPlayerNames] = useState<Record<string, string>>({});
+  const [duplicateWarning, setDuplicateWarning] = useState(false);
+  const pendingUpload = useRef<{ uri: string; photoDate: string } | null>(null);
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
@@ -559,6 +561,23 @@ export default function HomeScreen() {
           }
         }
       }
+      const isDuplicate = historyRef.current.some((item) => {
+        if (!item.playedDate) return false;
+        const existingTime = new Date(item.playedDate).getTime();
+        const newTime = new Date(photoDate).getTime();
+        return Math.abs(existingTime - newTime) < 60000;
+      });
+
+      if (isDuplicate) {
+        pendingUpload.current = { uri: asset.uri, photoDate };
+        setImageUri(asset.uri);
+        setResult(null);
+        setShowHistory(false);
+        setCurrentHistoryId(null);
+        setDuplicateWarning(true);
+        return;
+      }
+
       setPlayedDate(photoDate);
       setImageUri(asset.uri);
       setResult(null);
@@ -569,6 +588,22 @@ export default function HomeScreen() {
       console.error("Image pick error:", err);
     }
   }, []);
+
+  const confirmDuplicateUpload = async () => {
+    setDuplicateWarning(false);
+    if (pendingUpload.current) {
+      const { uri, photoDate } = pendingUpload.current;
+      pendingUpload.current = null;
+      setPlayedDate(photoDate);
+      await analyzeImage(uri, photoDate);
+    }
+  };
+
+  const cancelDuplicateUpload = () => {
+    setDuplicateWarning(false);
+    pendingUpload.current = null;
+    resetState();
+  };
 
   const analyzeImage = async (uri: string, dateStr?: string) => {
     setLoading(true);
@@ -1395,6 +1430,34 @@ export default function HomeScreen() {
                 style={({ pressed }) => [styles.deleteConfirmBtn, { backgroundColor: colors.danger }, pressed && { opacity: 0.6 }]}
               >
                 <Text style={styles.deleteConfirmText}>Delete</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal visible={duplicateWarning} transparent animationType="fade">
+        <Pressable style={styles.modalOverlay} onPress={cancelDuplicateUpload}>
+          <Pressable style={[styles.modalContent, { backgroundColor: colors.surface, borderColor: colors.cardBorder }]} onPress={(e) => e.stopPropagation()}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 }}>
+              <Ionicons name="warning-outline" size={22} color={colors.accent} />
+              <Text style={[styles.modalTitle, { color: colors.text, marginBottom: 0 }]}>Duplicate Score</Text>
+            </View>
+            <Text style={[styles.deleteModalMessage, { color: colors.textSecondary }]}>
+              Looks like you already uploaded this score. Do you want to upload it again?
+            </Text>
+            <View style={styles.modalButtons}>
+              <Pressable
+                onPress={cancelDuplicateUpload}
+                style={({ pressed }) => [styles.modalCancelBtn, { backgroundColor: colors.surfaceLight }, pressed && { opacity: 0.6 }]}
+              >
+                <Text style={[styles.modalCancelText, { color: colors.textSecondary }]}>Nevermind</Text>
+              </Pressable>
+              <Pressable
+                onPress={confirmDuplicateUpload}
+                style={({ pressed }) => [styles.modalSaveBtn, { backgroundColor: colors.accent }, pressed && { opacity: 0.6 }]}
+              >
+                <Text style={[styles.modalSaveText, { color: isDark ? colors.background : "#fff" }]}>Yes, upload this score</Text>
               </Pressable>
             </View>
           </Pressable>
