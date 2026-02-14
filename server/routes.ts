@@ -45,7 +45,7 @@ Rules:
 - Extract up to 4 team members maximum
 - Assign colors based on the actual colors visible in the game UI for each player
 - If colors aren't distinguishable, assign them in order: blue, red, green, yellow
-- teamScore should be the total combined score of all team members
+- There may be multiple team-related scores visible. The overall Team score (teamScore) is the LARGEST number visible in the image. Do NOT sum individual player scores — look for the biggest number displayed, which represents the overall team score.
 - If you can identify the game, include its name
 - If you cannot parse scores from the image, return: {"error": "Could not parse scores from this image"}
 - Return ONLY the JSON, no markdown or explanation`
