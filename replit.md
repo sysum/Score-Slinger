@@ -2,7 +2,7 @@
 
 ## Overview
 
-Score Slinger is a mobile app that uses AI-powered image recognition to parse scoreboards from theme park ride games (like Marvel's Web Slingers). Users take a photo of a game scoreboard, and the app uses OpenAI's vision model to extract team scores, individual player scores, and objective scores from the image.
+Score Slinger is a shared web/mobile app that uses AI-powered image recognition to parse scoreboards from theme park ride games (like Marvel's Web Slingers). Users take a photo of a game scoreboard, and the app uses OpenAI's vision model to extract team scores, individual player scores, and objective scores from the image. All scores are stored in a shared PostgreSQL database so family and friends can view each other's uploads in a collaborative feed.
 
 The project uses an Expo React Native frontend with an Express.js backend, connected to a PostgreSQL database via Drizzle ORM. The AI integration uses OpenAI's API (through Replit's AI Integrations proxy) for image analysis.
 
@@ -39,11 +39,18 @@ Pre-built integration modules exist but are supplementary to the core app:
 - **batch/**: Rate-limited batch processing utilities with retry logic (`p-limit`, `p-retry`)
 
 ### Data Storage
-- **Database**: PostgreSQL via Drizzle ORM. Schema defined in `shared/schema.ts`
-- **Current Schema**: `users` table (id, username, password) and chat-related tables (`conversations`, `messages`) in `shared/models/chat.ts`
-- **In-Memory Fallback**: `server/storage.ts` implements `MemStorage` class for user operations — currently used instead of database for user storage
+- **Database**: PostgreSQL via Drizzle ORM. Schema defined in `shared/schema.ts`. Database connection in `server/db.ts` using `pg` Pool with `drizzle-orm/node-postgres`
+- **Scores Table**: `scores` table stores all shared score data — uploaderName, teamScore, achievement, gameName, objectiveScores (JSONB), players (JSONB), playerNames (JSONB), imageBase64, imageMimeType, playedDate, createdAt
+- **Users Table**: `users` table (id, username, password) — legacy, not used by core Score Slinger flow
 - **Drizzle Config**: `drizzle.config.ts` points to `DATABASE_URL` env var; migrations output to `./migrations`
-- **Client-Side Storage**: `AsyncStorage` used for local persistence of scan history
+- **Client-Side Storage**: `AsyncStorage` used for local-only preferences: `display_name`, `sort_option`, `date_format` (appearance mode managed by ThemeContext)
+
+### Display Name System
+- No authentication — users pick a display name on first launch (stored in AsyncStorage as `display_name`)
+- Display name is attached to each uploaded score as `uploaderName`
+- All uploaded scores are visible to everyone in a shared feed
+- Player names are shared: when any user renames a player color, everyone sees the update
+- Users can only delete their own uploaded scores (checked client-side by comparing uploaderName)
 
 ### Build & Deployment
 - **Development**: Two processes — `expo:dev` for the mobile/web client, `server:dev` for the Express API
