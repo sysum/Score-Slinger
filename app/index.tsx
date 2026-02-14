@@ -707,7 +707,10 @@ export default function HomeScreen() {
       <View style={[styles.container, { paddingTop: insets.top + webTopInset }]}>
         <View style={styles.header}>
           <Pressable
-            onPress={resetState}
+            onPress={() => {
+              resetState();
+              setShowHistory(true);
+            }}
             style={({ pressed }) => [styles.headerBtn, pressed && { opacity: 0.6 }]}
           >
             <Ionicons name="arrow-back" size={24} color={Colors.text} />
