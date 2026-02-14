@@ -943,7 +943,7 @@ export default function HomeScreen() {
     <View style={[styles.container, { paddingTop: insets.top + webTopInset }]}>
       <View style={styles.header}>
         <View style={{ width: 40 }} />
-        <Text style={styles.headerTitle}>ScoreSnap</Text>
+        <Text style={styles.headerTitle}>Score Slinger</Text>
         <Pressable
           onPress={() => setShowHistory(true)}
           style={({ pressed }) => [styles.headerBtn, pressed && { opacity: 0.6 }]}
