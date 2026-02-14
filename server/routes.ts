@@ -3,6 +3,9 @@ import { createServer, type Server } from "node:http";
 import OpenAI from "openai";
 import multer from "multer";
 import exifParser from "exif-parser";
+import { db } from "./db";
+import { scores } from "@shared/schema";
+import { eq, desc } from "drizzle-orm";
 
 const openai = new OpenAI({
   apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
@@ -124,6 +127,70 @@ Rules:
     } catch (error: any) {
       console.error("Error parsing score:", error);
       res.status(500).json({ error: "Failed to analyze image. Please try again." });
+    }
+  });
+
+  app.get("/api/scores", async (_req: Request, res: Response) => {
+    try {
+      const allScores = await db.select().from(scores).orderBy(desc(scores.createdAt));
+      res.json(allScores);
+    } catch (error: any) {
+      console.error("Error fetching scores:", error);
+      res.status(500).json({ error: "Failed to fetch scores" });
+    }
+  });
+
+  app.post("/api/scores", async (req: Request, res: Response) => {
+    try {
+      const { uploaderName, teamScore, achievement, gameName, objectiveScores, players, playerNames, imageBase64, imageMimeType, playedDate } = req.body;
+      if (!uploaderName || teamScore === undefined || !players) {
+        return res.status(400).json({ error: "Missing required fields" });
+      }
+      const [newScore] = await db.insert(scores).values({
+        uploaderName,
+        teamScore,
+        achievement: achievement || null,
+        gameName: gameName || "Unknown",
+        objectiveScores: objectiveScores || null,
+        players,
+        playerNames: playerNames || null,
+        imageBase64: imageBase64 || null,
+        imageMimeType: imageMimeType || null,
+        playedDate: playedDate || null,
+      }).returning();
+      res.json(newScore);
+    } catch (error: any) {
+      console.error("Error saving score:", error);
+      res.status(500).json({ error: "Failed to save score" });
+    }
+  });
+
+  app.patch("/api/scores/:id/player-names", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { playerNames: names } = req.body;
+      const [updated] = await db.update(scores).set({ playerNames: names || null }).where(eq(scores.id, id)).returning();
+      if (!updated) {
+        return res.status(404).json({ error: "Score not found" });
+      }
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Error updating player names:", error);
+      res.status(500).json({ error: "Failed to update player names" });
+    }
+  });
+
+  app.delete("/api/scores/:id", async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const [deleted] = await db.delete(scores).where(eq(scores.id, id)).returning();
+      if (!deleted) {
+        return res.status(404).json({ error: "Score not found" });
+      }
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error deleting score:", error);
+      res.status(500).json({ error: "Failed to delete score" });
     }
   });
 
