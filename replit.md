@@ -15,7 +15,8 @@ Preferred communication style: Simple, everyday language.
 ### Frontend (Expo / React Native)
 - **Framework**: Expo SDK 54 with React Native 0.81, using expo-router for file-based routing
 - **Routing**: File-based routing via `expo-router` — screens live in the `app/` directory. Currently a single-screen app (`app/index.tsx`) with a Stack navigator
-- **State Management**: TanStack React Query for server state; local component state with React hooks and AsyncStorage for persistence
+- **State Management**: TanStack React Query for server state; local component state with React hooks and AsyncStorage for persistence (date format, sort preference)
+- **Settings Module**: Accessible via gear icon on main screen. Supports date format selection (10 formats), default sort order, and export scores (placeholder)
 - **Styling**: Dark theme throughout with custom color constants in `constants/colors.ts`. Uses DM Sans font family loaded via `@expo-google-fonts`
 - **Animations**: `react-native-reanimated` for animations, `expo-haptics` for tactile feedback
 - **Image Handling**: `expo-image-picker` for camera/gallery access, `expo-image` for display
