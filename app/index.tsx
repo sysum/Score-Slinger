@@ -443,7 +443,7 @@ export default function HomeScreen() {
                       </Text>
                     </View>
                     <View style={styles.objectiveCard}>
-                      <MaterialCommunityIcons name="explosion" size={22} color="#FFB347" />
+                      <MaterialCommunityIcons name="robot" size={22} color="#FFB347" />
                       <Text style={styles.objectiveScore}>
                         {result.objectiveScores.destroyGiantBot.toLocaleString()}
                       </Text>
