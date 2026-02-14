@@ -264,6 +264,7 @@ export default function HomeScreen() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ParsedResult | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
+  const historyRef = useRef<HistoryItem[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [playedDate, setPlayedDate] = useState<string | null>(null);
   const [editingDate, setEditingDate] = useState(false);
@@ -282,9 +283,17 @@ export default function HomeScreen() {
     try {
       const stored = await AsyncStorage.getItem("score_history");
       if (stored) {
-        setHistory(JSON.parse(stored));
+        const parsed = JSON.parse(stored);
+        setHistory(parsed);
+        historyRef.current = parsed;
       }
     } catch {}
+  };
+
+  const persistHistory = async (updated: HistoryItem[]) => {
+    setHistory(updated);
+    historyRef.current = updated;
+    await AsyncStorage.setItem("score_history", JSON.stringify(updated));
   };
 
   const saveToHistory = async (parsed: ParsedResult, uri?: string, dateStr?: string) => {
@@ -297,11 +306,10 @@ export default function HomeScreen() {
         imageUri: uri,
         playedDate: dateStr || new Date().toISOString(),
       };
-      const updated = [newItem, ...history].slice(0, 50);
-      setHistory(updated);
+      const updated = [newItem, ...historyRef.current].slice(0, 50);
       setCurrentHistoryId(itemId);
       setPlayerNames({});
-      await AsyncStorage.setItem("score_history", JSON.stringify(updated));
+      await persistHistory(updated);
     } catch {}
   };
 
@@ -309,9 +317,8 @@ export default function HomeScreen() {
 
   const confirmDeleteItem = async () => {
     if (!pendingDeleteId) return;
-    const updated = history.filter((h) => h.id !== pendingDeleteId);
-    setHistory(updated);
-    await AsyncStorage.setItem("score_history", JSON.stringify(updated));
+    const updated = historyRef.current.filter((h) => h.id !== pendingDeleteId);
+    await persistHistory(updated);
     if (currentHistoryId === pendingDeleteId) {
       resetState();
     }
@@ -321,11 +328,10 @@ export default function HomeScreen() {
   const updatePlayedDate = async (newDate: string) => {
     setPlayedDate(newDate);
     if (currentHistoryId) {
-      const updated = history.map((h) =>
+      const updated = historyRef.current.map((h) =>
         h.id === currentHistoryId ? { ...h, playedDate: newDate } : h
       );
-      setHistory(updated);
-      await AsyncStorage.setItem("score_history", JSON.stringify(updated));
+      await persistHistory(updated);
     }
   };
 
@@ -334,11 +340,10 @@ export default function HomeScreen() {
     if (!name) delete updated[color];
     setPlayerNames(updated);
     if (currentHistoryId) {
-      const updatedHistory = history.map((h) =>
+      const updatedHistory = historyRef.current.map((h) =>
         h.id === currentHistoryId ? { ...h, playerNames: Object.keys(updated).length > 0 ? updated : undefined } : h
       );
-      setHistory(updatedHistory);
-      await AsyncStorage.setItem("score_history", JSON.stringify(updatedHistory));
+      await persistHistory(updatedHistory);
     }
   };
 
