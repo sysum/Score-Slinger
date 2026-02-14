@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef } from "react";
+import * as FileSystem from "expo-file-system";
 import {
   StyleSheet,
   View,
@@ -293,19 +294,53 @@ export default function HomeScreen() {
     await AsyncStorage.setItem("score_history", JSON.stringify(updated));
   };
 
+  const persistImage = async (uri: string, itemId: string): Promise<string> => {
+    if (Platform.OS === "web") {
+      try {
+        const response = await globalThis.fetch(uri);
+        const blob = await response.blob();
+        return await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.readAsDataURL(blob);
+        });
+      } catch {
+        return uri;
+      }
+    }
+    try {
+      const imagesDir = new FileSystem.Directory(FileSystem.Paths.document, "scoresnap_images");
+      if (!imagesDir.exists) {
+        imagesDir.create({ intermediates: true });
+      }
+      const ext = uri.split(".").pop()?.split("?")[0] || "jpg";
+      const sourceFile = new FileSystem.File(uri);
+      const destFile = new FileSystem.File(imagesDir, `${itemId}.${ext}`);
+      sourceFile.copy(destFile);
+      return destFile.uri;
+    } catch {
+      return uri;
+    }
+  };
+
   const saveToHistory = async (parsed: ParsedResult, uri?: string, dateStr?: string) => {
     try {
       const itemId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
+      let savedUri = uri;
+      if (uri) {
+        savedUri = await persistImage(uri, itemId);
+      }
       const newItem: HistoryItem = {
         id: itemId,
         result: parsed,
         timestamp: Date.now(),
-        imageUri: uri,
+        imageUri: savedUri,
         playedDate: dateStr || new Date().toISOString(),
       };
       const updated = [newItem, ...historyRef.current].slice(0, 50);
       setCurrentHistoryId(itemId);
       setPlayerNames({});
+      setImageUri(savedUri || null);
       await persistHistory(updated);
     } catch {}
   };
@@ -314,6 +349,10 @@ export default function HomeScreen() {
 
   const confirmDeleteItem = async () => {
     if (!pendingDeleteId) return;
+    const deletedItem = historyRef.current.find((h) => h.id === pendingDeleteId);
+    if (deletedItem?.imageUri && Platform.OS !== "web" && deletedItem.imageUri.includes("scoresnap_images")) {
+      try { const f = new FileSystem.File(deletedItem.imageUri); if (f.exists) f.delete(); } catch {}
+    }
     const updated = historyRef.current.filter((h) => h.id !== pendingDeleteId);
     await persistHistory(updated);
     if (currentHistoryId === pendingDeleteId) {
