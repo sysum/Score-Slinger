@@ -131,6 +131,7 @@ function PlayerCard({
             placeholder={player.name}
             placeholderTextColor={Colors.textMuted}
             returnKeyType="done"
+            autoCapitalize="words"
           />
         ) : (
           <Pressable
@@ -148,9 +149,6 @@ function PlayerCard({
         )}
         <Text style={[styles.playerScore, { color }]}>{player.score.toLocaleString()}</Text>
       </View>
-      {customName ? (
-        <Text style={styles.playerColorLabel}>{player.name}</Text>
-      ) : null}
       <View style={styles.playerBarBg}>
         <Animated.View style={[styles.playerBar, { backgroundColor: color }, barStyle]} />
       </View>
@@ -699,9 +697,7 @@ export default function HomeScreen() {
                     colors={["transparent", "rgba(10, 14, 26, 0.9)"]}
                     style={styles.previewGradient}
                   />
-                  <View style={styles.previewOverlay}>
-                    <Text style={styles.gameLabel}>{result.gameName}</Text>
-                  </View>
+                  <View style={styles.previewOverlay} />
                 </Animated.View>
               )}
 
@@ -1264,7 +1260,7 @@ const styles = StyleSheet.create({
   },
   playerNameInput: {
     fontFamily: "DMSans_500Medium",
-    fontSize: 15,
+    fontSize: 16,
     flex: 1,
     borderBottomWidth: 1,
     borderBottomColor: Colors.accent,
