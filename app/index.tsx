@@ -490,8 +490,12 @@ export default function HomeScreen() {
       if (data.error) {
         setResult({ teamScore: 0, gameName: "Unknown", players: [], error: data.error });
       } else {
+        const effectiveDate = data.photoTakenDate || dateStr;
+        if (effectiveDate) {
+          setPlayedDate(effectiveDate);
+        }
         setResult(data);
-        await saveToHistory(data, uri, dateStr);
+        await saveToHistory(data, uri, effectiveDate);
       }
 
       if (Platform.OS !== "web") {

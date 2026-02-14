@@ -2,6 +2,7 @@ import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "node:http";
 import OpenAI from "openai";
 import multer from "multer";
+import exifParser from "exif-parser";
 
 const openai = new OpenAI({
   apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
@@ -22,6 +23,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const base64Image = req.file.buffer.toString("base64");
       const mimeType = req.file.mimetype || "image/jpeg";
+
+      let photoTakenDate: string | null = null;
+      try {
+        const parser = exifParser.create(req.file.buffer);
+        const exifResult = parser.parse();
+        const tags = exifResult.tags;
+        const exifTimestamp = tags.DateTimeOriginal || tags.CreateDate || tags.ModifyDate;
+        if (exifTimestamp && typeof exifTimestamp === "number") {
+          photoTakenDate = new Date(exifTimestamp * 1000).toISOString();
+        }
+      } catch (exifErr) {
+        console.log("EXIF extraction failed (non-critical):", exifErr);
+      }
 
       const response = await openai.chat.completions.create({
         model: "gpt-5-mini",
@@ -100,6 +114,9 @@ Rules:
         parsed = { error: "Could not parse scores from this image" };
       }
 
+      if (photoTakenDate) {
+        parsed.photoTakenDate = photoTakenDate;
+      }
       res.json(parsed);
     } catch (error: any) {
       console.error("Error parsing score:", error);
