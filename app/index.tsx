@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import {
   StyleSheet,
   View,
@@ -11,6 +11,7 @@ import {
   Dimensions,
   TextInput,
   Modal,
+  PanResponder,
 } from "react-native";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
@@ -110,6 +111,8 @@ function PlayerCard({ player, index }: { player: PlayerScore; index: number }) {
   );
 }
 
+const DELETE_THRESHOLD = -80;
+
 function HistoryCard({
   item,
   onPress,
@@ -128,32 +131,84 @@ function HistoryCard({
     minute: "2-digit",
   });
 
+  const translateX = useSharedValue(0);
+  const isSwiped = useRef(false);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        return Math.abs(gestureState.dx) > 10 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy);
+      },
+      onPanResponderMove: (_, gestureState) => {
+        if (gestureState.dx < 0) {
+          translateX.value = Math.max(gestureState.dx, DELETE_THRESHOLD - 10);
+        } else if (isSwiped.current) {
+          translateX.value = Math.min(DELETE_THRESHOLD + gestureState.dx, 0);
+        }
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (gestureState.dx < DELETE_THRESHOLD / 2) {
+          translateX.value = withSpring(DELETE_THRESHOLD, { damping: 20, stiffness: 200 });
+          isSwiped.current = true;
+        } else {
+          translateX.value = withSpring(0, { damping: 20, stiffness: 200 });
+          isSwiped.current = false;
+        }
+      },
+    })
+  ).current;
+
+  const cardAnimStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: translateX.value }],
+  }));
+
+  const deleteOpacity = useAnimatedStyle(() => ({
+    opacity: interpolate(translateX.value, [0, DELETE_THRESHOLD], [0, 1]),
+  }));
+
+  const handlePress = () => {
+    if (isSwiped.current) {
+      translateX.value = withSpring(0, { damping: 20, stiffness: 200 });
+      isSwiped.current = false;
+      return;
+    }
+    onPress();
+  };
+
   return (
-    <View style={styles.historyCard}>
-      <Pressable
-        onPress={onPress}
-        style={({ pressed }) => [styles.historyCardContent, pressed && { opacity: 0.7 }]}
-      >
-        <View style={styles.historyLeft}>
-          <MaterialCommunityIcons name="gamepad-variant" size={20} color={Colors.accent} />
-          <View style={{ marginLeft: 12, flex: 1 }}>
-            <Text style={styles.historyGame} numberOfLines={1}>
-              {item.result.gameName}
-            </Text>
-            <Text style={styles.historyTime}>{timeStr}</Text>
+    <View style={styles.historyCardWrapper}>
+      <Animated.View style={[styles.historyDeleteArea, deleteOpacity]}>
+        <Pressable
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            onDelete();
+          }}
+          style={({ pressed }) => [styles.historyDeleteBtn, pressed && { opacity: 0.7 }]}
+        >
+          <Ionicons name="trash-outline" size={20} color="#fff" />
+          <Text style={styles.historyDeleteText}>Delete</Text>
+        </Pressable>
+      </Animated.View>
+      <Animated.View style={[styles.historyCard, cardAnimStyle]} {...panResponder.panHandlers}>
+        <Pressable
+          onPress={handlePress}
+          style={({ pressed }) => [styles.historyCardContent, pressed && { opacity: 0.7 }]}
+        >
+          <View style={styles.historyLeft}>
+            <MaterialCommunityIcons name="gamepad-variant" size={20} color={Colors.accent} />
+            <View style={{ marginLeft: 12, flex: 1 }}>
+              <Text style={styles.historyGame} numberOfLines={1}>
+                {item.result.gameName}
+              </Text>
+              <Text style={styles.historyTime}>{timeStr}</Text>
+            </View>
           </View>
-        </View>
-        <View style={styles.historyRight}>
-          <Text style={styles.historyScore}>{item.result.teamScore.toLocaleString()}</Text>
-          <Feather name="chevron-right" size={16} color={Colors.textMuted} />
-        </View>
-      </Pressable>
-      <Pressable
-        onPress={onDelete}
-        style={({ pressed }) => [styles.historyDeleteBtn, pressed && { opacity: 0.5 }]}
-      >
-        <Ionicons name="trash-outline" size={18} color={Colors.danger} />
-      </Pressable>
+          <View style={styles.historyRight}>
+            <Text style={styles.historyScore}>{item.result.teamScore.toLocaleString()}</Text>
+            <Feather name="chevron-right" size={16} color={Colors.textMuted} />
+          </View>
+        </Pressable>
+      </Animated.View>
     </View>
   );
 }
@@ -203,22 +258,17 @@ export default function HomeScreen() {
     } catch {}
   };
 
-  const deleteHistoryItem = async (id: string) => {
-    Alert.alert("Delete Entry", "Are you sure you want to delete this score entry?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Delete",
-        style: "destructive",
-        onPress: async () => {
-          const updated = history.filter((h) => h.id !== id);
-          setHistory(updated);
-          await AsyncStorage.setItem("score_history", JSON.stringify(updated));
-          if (currentHistoryId === id) {
-            resetState();
-          }
-        },
-      },
-    ]);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+
+  const confirmDeleteItem = async () => {
+    if (!pendingDeleteId) return;
+    const updated = history.filter((h) => h.id !== pendingDeleteId);
+    setHistory(updated);
+    await AsyncStorage.setItem("score_history", JSON.stringify(updated));
+    if (currentHistoryId === pendingDeleteId) {
+      resetState();
+    }
+    setPendingDeleteId(null);
   };
 
   const updatePlayedDate = async (newDate: string) => {
@@ -422,11 +472,34 @@ export default function HomeScreen() {
                 key={item.id}
                 item={item}
                 onPress={() => viewHistoryItem(item)}
-                onDelete={() => deleteHistoryItem(item.id)}
+                onDelete={() => setPendingDeleteId(item.id)}
               />
             ))
           )}
         </ScrollView>
+
+        <Modal visible={!!pendingDeleteId} transparent animationType="fade">
+          <Pressable style={styles.modalOverlay} onPress={() => setPendingDeleteId(null)}>
+            <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
+              <Text style={styles.modalTitle}>Delete Entry</Text>
+              <Text style={styles.deleteModalMessage}>Are you sure you want to delete this score entry?</Text>
+              <View style={styles.modalButtons}>
+                <Pressable
+                  onPress={() => setPendingDeleteId(null)}
+                  style={({ pressed }) => [styles.modalCancelBtn, pressed && { opacity: 0.6 }]}
+                >
+                  <Text style={styles.modalCancelText}>Cancel</Text>
+                </Pressable>
+                <Pressable
+                  onPress={confirmDeleteItem}
+                  style={({ pressed }) => [styles.deleteConfirmBtn, pressed && { opacity: 0.6 }]}
+                >
+                  <Text style={styles.deleteConfirmText}>Delete</Text>
+                </Pressable>
+              </View>
+            </Pressable>
+          </Pressable>
+        </Modal>
       </View>
     );
   }
@@ -714,7 +787,7 @@ export default function HomeScreen() {
                     key={item.id}
                     item={item}
                     onPress={() => viewHistoryItem(item)}
-                    onDelete={() => deleteHistoryItem(item.id)}
+                    onDelete={() => setPendingDeleteId(item.id)}
                   />
                 ))}
               </View>
@@ -722,6 +795,29 @@ export default function HomeScreen() {
           </>
         )}
       </View>
+
+      <Modal visible={!!pendingDeleteId} transparent animationType="fade">
+        <Pressable style={styles.modalOverlay} onPress={() => setPendingDeleteId(null)}>
+          <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
+            <Text style={styles.modalTitle}>Delete Entry</Text>
+            <Text style={styles.deleteModalMessage}>Are you sure you want to delete this score entry?</Text>
+            <View style={styles.modalButtons}>
+              <Pressable
+                onPress={() => setPendingDeleteId(null)}
+                style={({ pressed }) => [styles.modalCancelBtn, pressed && { opacity: 0.6 }]}
+              >
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                onPress={confirmDeleteItem}
+                style={({ pressed }) => [styles.deleteConfirmBtn, pressed && { opacity: 0.6 }]}
+              >
+                <Text style={styles.deleteConfirmText}>Delete</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -1032,12 +1128,40 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     gap: 10,
   },
+  historyCardWrapper: {
+    borderRadius: 14,
+    overflow: "hidden" as const,
+    position: "relative" as const,
+  },
+  historyDeleteArea: {
+    position: "absolute" as const,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    width: 80,
+    backgroundColor: Colors.danger,
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
+    borderTopRightRadius: 14,
+    borderBottomRightRadius: 14,
+  },
+  historyDeleteBtn: {
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
+    gap: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  historyDeleteText: {
+    fontFamily: "DMSans_600SemiBold",
+    fontSize: 11,
+    color: "#fff",
+  },
   historyCard: {
     flexDirection: "row" as const,
     alignItems: "center" as const,
     backgroundColor: Colors.surface,
     borderRadius: 14,
-    overflow: "hidden" as const,
   },
   historyCardContent: {
     flex: 1,
@@ -1045,12 +1169,6 @@ const styles = StyleSheet.create({
     alignItems: "center" as const,
     justifyContent: "space-between" as const,
     padding: 16,
-  },
-  historyDeleteBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 16,
-    alignItems: "center" as const,
-    justifyContent: "center" as const,
   },
   historyLeft: {
     flexDirection: "row",
@@ -1184,5 +1302,24 @@ const styles = StyleSheet.create({
     fontFamily: "DMSans_600SemiBold",
     fontSize: 14,
     color: Colors.background,
+  },
+  deleteModalMessage: {
+    fontFamily: "DMSans_400Regular",
+    fontSize: 14,
+    color: Colors.textSecondary,
+    marginBottom: 20,
+    lineHeight: 20,
+  },
+  deleteConfirmBtn: {
+    flex: 1,
+    alignItems: "center" as const,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: Colors.danger,
+  },
+  deleteConfirmText: {
+    fontFamily: "DMSans_600SemiBold",
+    fontSize: 14,
+    color: "#fff",
   },
 });
