@@ -66,6 +66,7 @@ interface HistoryItem {
   imageUri?: string;
   playedDate?: string;
   playerNames?: Record<string, string>;
+  fileName?: string;
 }
 
 type SortOption =
@@ -374,7 +375,7 @@ export default function HomeScreen() {
   const [currentHistoryId, setCurrentHistoryId] = useState<string | null>(null);
   const [playerNames, setPlayerNames] = useState<Record<string, string>>({});
   const [duplicateWarning, setDuplicateWarning] = useState(false);
-  const pendingUpload = useRef<{ uri: string; photoDate: string } | null>(null);
+  const pendingUpload = useRef<{ uri: string; photoDate: string; fileName?: string } | null>(null);
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
@@ -437,7 +438,7 @@ export default function HomeScreen() {
     }
   };
 
-  const saveToHistory = async (parsed: ParsedResult, uri?: string, dateStr?: string) => {
+  const saveToHistory = async (parsed: ParsedResult, uri?: string, dateStr?: string, fileName?: string) => {
     try {
       const itemId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
       let savedUri = uri;
@@ -450,6 +451,7 @@ export default function HomeScreen() {
         timestamp: Date.now(),
         imageUri: savedUri,
         playedDate: dateStr || new Date().toISOString(),
+        ...(fileName ? { fileName } : {}),
       };
       const updated = [newItem, ...historyRef.current].slice(0, 50);
       setCurrentHistoryId(itemId);
@@ -561,7 +563,10 @@ export default function HomeScreen() {
           }
         }
       }
+      const pickedFileName = asset.fileName || asset.uri.split("/").pop() || undefined;
+
       const isDuplicate = historyRef.current.some((item) => {
+        if (pickedFileName && item.fileName && pickedFileName === item.fileName) return true;
         if (!item.playedDate) return false;
         const existingTime = new Date(item.playedDate).getTime();
         const newTime = new Date(photoDate).getTime();
@@ -569,7 +574,7 @@ export default function HomeScreen() {
       });
 
       if (isDuplicate) {
-        pendingUpload.current = { uri: asset.uri, photoDate };
+        pendingUpload.current = { uri: asset.uri, photoDate, fileName: pickedFileName };
         setImageUri(asset.uri);
         setResult(null);
         setShowHistory(false);
@@ -583,7 +588,7 @@ export default function HomeScreen() {
       setResult(null);
       setShowHistory(false);
       setCurrentHistoryId(null);
-      await analyzeImage(asset.uri, photoDate ?? undefined);
+      await analyzeImage(asset.uri, photoDate ?? undefined, pickedFileName);
     } catch (err) {
       console.error("Image pick error:", err);
     }
@@ -592,10 +597,10 @@ export default function HomeScreen() {
   const confirmDuplicateUpload = async () => {
     setDuplicateWarning(false);
     if (pendingUpload.current) {
-      const { uri, photoDate } = pendingUpload.current;
+      const { uri, photoDate, fileName } = pendingUpload.current;
       pendingUpload.current = null;
       setPlayedDate(photoDate);
-      await analyzeImage(uri, photoDate);
+      await analyzeImage(uri, photoDate, fileName);
     }
   };
 
@@ -605,7 +610,7 @@ export default function HomeScreen() {
     resetState();
   };
 
-  const analyzeImage = async (uri: string, dateStr?: string) => {
+  const analyzeImage = async (uri: string, dateStr?: string, fileName?: string) => {
     setLoading(true);
     try {
       const baseUrl = getApiUrl();
@@ -642,7 +647,7 @@ export default function HomeScreen() {
           setPlayedDate(effectiveDate);
         }
         setResult(data);
-        await saveToHistory(data, uri, effectiveDate);
+        await saveToHistory(data, uri, effectiveDate, fileName);
       }
 
       if (Platform.OS !== "web") {
