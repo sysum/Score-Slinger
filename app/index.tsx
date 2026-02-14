@@ -242,9 +242,6 @@ function HistoryCard({
           <View style={styles.historyLeft}>
             <MaterialCommunityIcons name="gamepad-variant" size={20} color={Colors.accent} />
             <View style={{ marginLeft: 12, flex: 1 }}>
-              <Text style={styles.historyGame} numberOfLines={1}>
-                {item.result.gameName}
-              </Text>
               <Text style={styles.historyTime}>{timeStr}</Text>
             </View>
           </View>
