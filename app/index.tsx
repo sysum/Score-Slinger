@@ -348,6 +348,9 @@ function HistoryCard({
             </View>
           </View>
           <View style={styles.historyRight}>
+            {item.result.achievement ? (
+              <Ionicons name="trophy" size={16} color="#FFD700" style={{ marginRight: 6 }} />
+            ) : null}
             <Text style={[styles.historyScore, { color: themeColors.accent }]}>{item.result.teamScore.toLocaleString()}</Text>
             <Feather name="chevron-right" size={16} color={themeColors.textMuted} />
           </View>
@@ -1165,6 +1168,19 @@ export default function HomeScreen() {
                 </View>
               </Animated.View>
 
+              {result.achievement ? (
+                <Animated.View
+                  entering={Platform.OS !== "web" ? FadeInUp.delay(125).springify() : undefined}
+                  style={[styles.achievementCard, { backgroundColor: colors.surface, borderColor: "#FFD70040" }]}
+                >
+                  <Ionicons name="trophy" size={22} color="#FFD700" />
+                  <View style={{ marginLeft: 12, flex: 1 }}>
+                    <Text style={[styles.achievementLabel, { color: colors.textSecondary }]}>Achievement</Text>
+                    <Text style={[styles.achievementText, { color: "#FFD700" }]}>{result.achievement}</Text>
+                  </View>
+                </Animated.View>
+              ) : null}
+
               {result.objectiveScores && (
                 <Animated.View
                   entering={Platform.OS !== "web" ? FadeInUp.delay(150).springify() : undefined}
@@ -1643,6 +1659,25 @@ const styles = StyleSheet.create({
   playerCountText: {
     fontFamily: "DMSans_400Regular",
     fontSize: 13,
+  },
+  achievementCard: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    marginBottom: 4,
+  },
+  achievementLabel: {
+    fontFamily: "DMSans_500Medium",
+    fontSize: 11,
+    textTransform: "uppercase" as const,
+    letterSpacing: 1,
+    marginBottom: 2,
+  },
+  achievementText: {
+    fontFamily: "DMSans_700Bold",
+    fontSize: 16,
   },
   objectivesSection: {
     gap: 12,
