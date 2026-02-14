@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "ScoreSnap",
-    "slug": "score-snap",
+    "name": "Score Slinger",
+    "slug": "scoreslinger",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "scoresnap",
+    "scheme": "scoreslinger",
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "splash": {
@@ -15,10 +15,10 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.scoresnap"
+      "bundleIdentifier": "com.scoreslinger.app"
     },
     "android": {
-      "package": "com.scoresnap",
+      "package": "com.scoreslinger.app",
       "adaptiveIcon": {
         "backgroundColor": "#0A0E1A",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
