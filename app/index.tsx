@@ -39,8 +39,15 @@ interface PlayerScore {
   color: "red" | "blue" | "green" | "yellow";
 }
 
+interface ObjectiveScores {
+  fightGiantBot: number;
+  rescueSpiderMan: number;
+  destroyGiantBot: number;
+}
+
 interface ParsedResult {
   teamScore: number;
+  objectiveScores?: ObjectiveScores;
   gameName: string;
   players: PlayerScore[];
   error?: string;
@@ -408,6 +415,44 @@ export default function HomeScreen() {
                 </View>
               </Animated.View>
 
+              {result.objectiveScores && (
+                <Animated.View
+                  entering={Platform.OS !== "web" ? FadeInUp.delay(150).springify() : undefined}
+                  style={styles.objectivesSection}
+                >
+                  <Text style={styles.sectionTitle}>Objective Scores</Text>
+                  <View style={styles.objectivesRow}>
+                    <View style={styles.objectiveCard}>
+                      <MaterialCommunityIcons name="sword-cross" size={22} color="#FF6B6B" />
+                      <Text style={styles.objectiveScore}>
+                        {result.objectiveScores.fightGiantBot.toLocaleString()}
+                      </Text>
+                      <Text style={styles.objectiveLabel} numberOfLines={2}>
+                        Fight Giant Bot
+                      </Text>
+                    </View>
+                    <View style={styles.objectiveCard}>
+                      <MaterialCommunityIcons name="shield-account" size={22} color="#4ECDC4" />
+                      <Text style={styles.objectiveScore}>
+                        {result.objectiveScores.rescueSpiderMan.toLocaleString()}
+                      </Text>
+                      <Text style={styles.objectiveLabel} numberOfLines={2}>
+                        Rescue Spider-Man
+                      </Text>
+                    </View>
+                    <View style={styles.objectiveCard}>
+                      <MaterialCommunityIcons name="explosion" size={22} color="#FFB347" />
+                      <Text style={styles.objectiveScore}>
+                        {result.objectiveScores.destroyGiantBot.toLocaleString()}
+                      </Text>
+                      <Text style={styles.objectiveLabel} numberOfLines={2}>
+                        Destroy Giant Bot
+                      </Text>
+                    </View>
+                  </View>
+                </Animated.View>
+              )}
+
               <View style={styles.playersSection}>
                 <Text style={styles.sectionTitle}>Individual Scores</Text>
                 {result.players.map((player, i) => (
@@ -717,6 +762,33 @@ const styles = StyleSheet.create({
     fontFamily: "DMSans_400Regular",
     fontSize: 13,
     color: Colors.textSecondary,
+  },
+  objectivesSection: {
+    gap: 12,
+  },
+  objectivesRow: {
+    flexDirection: "row" as const,
+    gap: 10,
+  },
+  objectiveCard: {
+    flex: 1,
+    backgroundColor: Colors.surface,
+    borderRadius: 14,
+    padding: 14,
+    alignItems: "center" as const,
+    gap: 8,
+  },
+  objectiveScore: {
+    fontFamily: "DMSans_700Bold",
+    fontSize: 20,
+    color: Colors.text,
+  },
+  objectiveLabel: {
+    fontFamily: "DMSans_400Regular",
+    fontSize: 11,
+    color: Colors.textSecondary,
+    textAlign: "center" as const,
+    lineHeight: 15,
   },
   playersSection: {
     gap: 12,

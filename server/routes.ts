@@ -31,6 +31,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
             content: `You are a video game scoreboard parser. Analyze the provided screenshot and extract score information. Return ONLY valid JSON with this exact structure:
 {
   "teamScore": <number>,
+  "objectiveScores": {
+    "fightGiantBot": <number>,
+    "rescueSpiderMan": <number>,
+    "destroyGiantBot": <number>
+  },
   "gameName": "<detected game name or 'Unknown'>",
   "players": [
     {
@@ -46,6 +51,7 @@ Rules:
 - Assign colors based on the actual colors visible in the game UI for each player
 - If colors aren't distinguishable, assign them in order: blue, red, green, yellow
 - There may be multiple team-related scores visible. The overall Team score (teamScore) is the LARGEST number visible in the image. Do NOT sum individual player scores — look for the biggest number displayed, which represents the overall team score.
+- Below the main team score there are additional objective scores displayed left to right. Extract them as objectiveScores: "fightGiantBot" (leftmost), "rescueSpiderMan" (middle), "destroyGiantBot" (rightmost). If any are not visible, use 0.
 - If you can identify the game, include its name
 - If you cannot parse scores from the image, return: {"error": "Could not parse scores from this image"}
 - Return ONLY the JSON, no markdown or explanation`
