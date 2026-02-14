@@ -67,6 +67,51 @@ interface HistoryItem {
   playerNames?: Record<string, string>;
 }
 
+type SortOption =
+  | "upload_recent"
+  | "upload_oldest"
+  | "played_recent"
+  | "played_oldest"
+  | "score_highest"
+  | "score_lowest";
+
+const SORT_LABELS: Record<SortOption, string> = {
+  upload_recent: "Upload Date (Recent First)",
+  upload_oldest: "Upload Date (Oldest First)",
+  played_recent: "Played Date (Recent First)",
+  played_oldest: "Played Date (Oldest First)",
+  score_highest: "Team Score (Highest First)",
+  score_lowest: "Team Score (Lowest First)",
+};
+
+const sortHistory = (items: HistoryItem[], sort: SortOption): HistoryItem[] => {
+  const sorted = [...items];
+  switch (sort) {
+    case "upload_recent":
+      return sorted.sort((a, b) => b.timestamp - a.timestamp);
+    case "upload_oldest":
+      return sorted.sort((a, b) => a.timestamp - b.timestamp);
+    case "played_recent":
+      return sorted.sort((a, b) => {
+        const da = a.playedDate ? new Date(a.playedDate).getTime() : a.timestamp;
+        const db = b.playedDate ? new Date(b.playedDate).getTime() : b.timestamp;
+        return db - da;
+      });
+    case "played_oldest":
+      return sorted.sort((a, b) => {
+        const da = a.playedDate ? new Date(a.playedDate).getTime() : a.timestamp;
+        const db = b.playedDate ? new Date(b.playedDate).getTime() : b.timestamp;
+        return da - db;
+      });
+    case "score_highest":
+      return sorted.sort((a, b) => b.result.teamScore - a.result.teamScore);
+    case "score_lowest":
+      return sorted.sort((a, b) => a.result.teamScore - b.result.teamScore);
+    default:
+      return sorted;
+  }
+};
+
 const PLAYER_COLOR_MAP: Record<string, string> = {
   blue: Colors.playerColors.blue,
   red: Colors.playerColors.red,
@@ -264,6 +309,8 @@ export default function HomeScreen() {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const historyRef = useRef<HistoryItem[]>([]);
   const [showHistory, setShowHistory] = useState(false);
+  const [sortOption, setSortOption] = useState<SortOption>("upload_recent");
+  const [showSortPicker, setShowSortPicker] = useState(false);
   const [playedDate, setPlayedDate] = useState<string | null>(null);
   const [editingDate, setEditingDate] = useState(false);
   const [editDate, setEditDate] = useState(new Date());
@@ -284,6 +331,10 @@ export default function HomeScreen() {
         const parsed = JSON.parse(stored);
         setHistory(parsed);
         historyRef.current = parsed;
+      }
+      const savedSort = await AsyncStorage.getItem("sort_option");
+      if (savedSort && savedSort in SORT_LABELS) {
+        setSortOption(savedSort as SortOption);
       }
     } catch {}
   };
@@ -635,7 +686,16 @@ export default function HomeScreen() {
     setEditingDate(false);
   };
 
+  const handleSortChange = async (option: SortOption) => {
+    setSortOption(option);
+    setShowSortPicker(false);
+    try {
+      await AsyncStorage.setItem("sort_option", option);
+    } catch {}
+  };
+
   if (showHistory) {
+    const sortedHistory = sortHistory(history, sortOption);
     return (
       <View style={[styles.container, { paddingTop: insets.top + webTopInset }]}>
         <View style={styles.header}>
@@ -645,8 +705,13 @@ export default function HomeScreen() {
           >
             <Ionicons name="arrow-back" size={24} color={Colors.text} />
           </Pressable>
-          <Text style={styles.headerTitle}>History</Text>
-          <View style={{ width: 40 }} />
+          <Text style={styles.headerTitle}>Results</Text>
+          <Pressable
+            onPress={() => setShowSortPicker(true)}
+            style={({ pressed }) => [styles.headerBtn, pressed && { opacity: 0.6 }]}
+          >
+            <Ionicons name="swap-vertical" size={22} color={Colors.text} />
+          </Pressable>
         </View>
         <ScrollView
           style={{ flex: 1 }}
@@ -665,7 +730,7 @@ export default function HomeScreen() {
               </Text>
             </View>
           ) : (
-            history.map((item) => (
+            sortedHistory.map((item) => (
               <HistoryCard
                 key={item.id}
                 item={item}
@@ -695,6 +760,37 @@ export default function HomeScreen() {
                   <Text style={styles.deleteConfirmText}>Delete</Text>
                 </Pressable>
               </View>
+            </Pressable>
+          </Pressable>
+        </Modal>
+
+        <Modal visible={showSortPicker} transparent animationType="fade">
+          <Pressable style={styles.modalOverlay} onPress={() => setShowSortPicker(false)}>
+            <Pressable style={styles.sortModalContent} onPress={(e) => e.stopPropagation()}>
+              <Text style={styles.modalTitle}>Sort By</Text>
+              {(Object.keys(SORT_LABELS) as SortOption[]).map((option) => (
+                <Pressable
+                  key={option}
+                  onPress={() => handleSortChange(option)}
+                  style={({ pressed }) => [
+                    styles.sortOptionRow,
+                    sortOption === option && styles.sortOptionActive,
+                    pressed && { opacity: 0.6 },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.sortOptionText,
+                      sortOption === option && styles.sortOptionTextActive,
+                    ]}
+                  >
+                    {SORT_LABELS[option]}
+                  </Text>
+                  {sortOption === option && (
+                    <Ionicons name="checkmark" size={20} color={Colors.accent} />
+                  )}
+                </Pressable>
+              ))}
             </Pressable>
           </Pressable>
         </Modal>
@@ -1636,5 +1732,38 @@ const styles = StyleSheet.create({
     fontFamily: "DMSans_500Medium",
     fontSize: 16,
     color: Colors.text,
+  },
+  sortModalContent: {
+    backgroundColor: Colors.surface,
+    borderRadius: 20,
+    padding: 24,
+    width: "100%" as const,
+    maxWidth: 340,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+  },
+  sortOptionRow: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    justifyContent: "space-between" as const,
+    paddingVertical: 14,
+    paddingHorizontal: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.cardBorder,
+  },
+  sortOptionActive: {
+    backgroundColor: "rgba(0, 200, 255, 0.06)",
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    marginHorizontal: -4,
+  },
+  sortOptionText: {
+    fontFamily: "DMSans_400Regular",
+    fontSize: 15,
+    color: Colors.textSecondary,
+  },
+  sortOptionTextActive: {
+    fontFamily: "DMSans_700Bold",
+    color: Colors.accent,
   },
 });

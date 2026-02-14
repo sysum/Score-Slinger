@@ -1,8 +1,8 @@
-# ScoreSnap
+# Score Slinger
 
 ## Overview
 
-ScoreSnap is a mobile app that uses AI-powered image recognition to parse scoreboards from theme park ride games (like Marvel's Web Slingers). Users take a photo of a game scoreboard, and the app uses OpenAI's vision model to extract team scores, individual player scores, and objective scores from the image.
+Score Slinger is a mobile app that uses AI-powered image recognition to parse scoreboards from theme park ride games (like Marvel's Web Slingers). Users take a photo of a game scoreboard, and the app uses OpenAI's vision model to extract team scores, individual player scores, and objective scores from the image.
 
 The project uses an Expo React Native frontend with an Express.js backend, connected to a PostgreSQL database via Drizzle ORM. The AI integration uses OpenAI's API (through Replit's AI Integrations proxy) for image analysis.
 
