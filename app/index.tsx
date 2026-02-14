@@ -9,6 +9,8 @@ import {
   Platform,
   Alert,
   Dimensions,
+  TextInput,
+  Modal,
 } from "react-native";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
@@ -58,6 +60,7 @@ interface HistoryItem {
   result: ParsedResult;
   timestamp: number;
   imageUri?: string;
+  playedDate?: string;
 }
 
 const PLAYER_COLOR_MAP: Record<string, string> = {
@@ -110,11 +113,14 @@ function PlayerCard({ player, index }: { player: PlayerScore; index: number }) {
 function HistoryCard({
   item,
   onPress,
+  onDelete,
 }: {
   item: HistoryItem;
   onPress: () => void;
+  onDelete: () => void;
 }) {
-  const date = new Date(item.timestamp);
+  const dateSource = item.playedDate || item.timestamp;
+  const date = new Date(dateSource);
   const timeStr = date.toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
@@ -123,24 +129,32 @@ function HistoryCard({
   });
 
   return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [styles.historyCard, pressed && { opacity: 0.7 }]}
-    >
-      <View style={styles.historyLeft}>
-        <MaterialCommunityIcons name="gamepad-variant" size={20} color={Colors.accent} />
-        <View style={{ marginLeft: 12, flex: 1 }}>
-          <Text style={styles.historyGame} numberOfLines={1}>
-            {item.result.gameName}
-          </Text>
-          <Text style={styles.historyTime}>{timeStr}</Text>
+    <View style={styles.historyCard}>
+      <Pressable
+        onPress={onPress}
+        style={({ pressed }) => [styles.historyCardContent, pressed && { opacity: 0.7 }]}
+      >
+        <View style={styles.historyLeft}>
+          <MaterialCommunityIcons name="gamepad-variant" size={20} color={Colors.accent} />
+          <View style={{ marginLeft: 12, flex: 1 }}>
+            <Text style={styles.historyGame} numberOfLines={1}>
+              {item.result.gameName}
+            </Text>
+            <Text style={styles.historyTime}>{timeStr}</Text>
+          </View>
         </View>
-      </View>
-      <View style={styles.historyRight}>
-        <Text style={styles.historyScore}>{item.result.teamScore.toLocaleString()}</Text>
-        <Feather name="chevron-right" size={16} color={Colors.textMuted} />
-      </View>
-    </Pressable>
+        <View style={styles.historyRight}>
+          <Text style={styles.historyScore}>{item.result.teamScore.toLocaleString()}</Text>
+          <Feather name="chevron-right" size={16} color={Colors.textMuted} />
+        </View>
+      </Pressable>
+      <Pressable
+        onPress={onDelete}
+        style={({ pressed }) => [styles.historyDeleteBtn, pressed && { opacity: 0.5 }]}
+      >
+        <Ionicons name="trash-outline" size={18} color={Colors.danger} />
+      </Pressable>
+    </View>
   );
 }
 
@@ -151,6 +165,10 @@ export default function HomeScreen() {
   const [result, setResult] = useState<ParsedResult | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [showHistory, setShowHistory] = useState(false);
+  const [playedDate, setPlayedDate] = useState<string | null>(null);
+  const [editingDate, setEditingDate] = useState(false);
+  const [dateInput, setDateInput] = useState("");
+  const [currentHistoryId, setCurrentHistoryId] = useState<string | null>(null);
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
@@ -168,24 +186,50 @@ export default function HomeScreen() {
     } catch {}
   };
 
-  const saveToHistory = async (parsed: ParsedResult, uri?: string) => {
+  const saveToHistory = async (parsed: ParsedResult, uri?: string, dateStr?: string) => {
     try {
+      const itemId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
       const newItem: HistoryItem = {
-        id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+        id: itemId,
         result: parsed,
         timestamp: Date.now(),
         imageUri: uri,
+        playedDate: dateStr || new Date().toISOString(),
       };
       const updated = [newItem, ...history].slice(0, 50);
       setHistory(updated);
+      setCurrentHistoryId(itemId);
       await AsyncStorage.setItem("score_history", JSON.stringify(updated));
     } catch {}
   };
 
   const deleteHistoryItem = async (id: string) => {
-    const updated = history.filter((h) => h.id !== id);
-    setHistory(updated);
-    await AsyncStorage.setItem("score_history", JSON.stringify(updated));
+    Alert.alert("Delete Entry", "Are you sure you want to delete this score entry?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: async () => {
+          const updated = history.filter((h) => h.id !== id);
+          setHistory(updated);
+          await AsyncStorage.setItem("score_history", JSON.stringify(updated));
+          if (currentHistoryId === id) {
+            resetState();
+          }
+        },
+      },
+    ]);
+  };
+
+  const updatePlayedDate = async (newDate: string) => {
+    setPlayedDate(newDate);
+    if (currentHistoryId) {
+      const updated = history.map((h) =>
+        h.id === currentHistoryId ? { ...h, playedDate: newDate } : h
+      );
+      setHistory(updated);
+      await AsyncStorage.setItem("score_history", JSON.stringify(updated));
+    }
   };
 
   const pickImage = useCallback(async (useCamera: boolean) => {
@@ -204,6 +248,7 @@ export default function HomeScreen() {
         pickerResult = await ImagePicker.launchCameraAsync({
           quality: 0.8,
           base64: false,
+          exif: true,
         });
       } else {
         const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -215,22 +260,36 @@ export default function HomeScreen() {
           mediaTypes: ["images"],
           quality: 0.8,
           base64: false,
+          exif: true,
         });
       }
 
       if (pickerResult.canceled) return;
 
       const asset = pickerResult.assets[0];
+      let photoDate: string | null = null;
+      if (asset.exif) {
+        const exifDate = (asset.exif as any).DateTimeOriginal || (asset.exif as any).DateTime || (asset.exif as any).DateTimeDigitized;
+        if (exifDate) {
+          const parsed = exifDate.replace(/^(\d{4}):(\d{2}):(\d{2})/, "$1-$2-$3");
+          photoDate = new Date(parsed).toISOString();
+        }
+      }
+      if (!photoDate) {
+        photoDate = new Date().toISOString();
+      }
+      setPlayedDate(photoDate);
       setImageUri(asset.uri);
       setResult(null);
       setShowHistory(false);
-      await analyzeImage(asset.uri);
+      setCurrentHistoryId(null);
+      await analyzeImage(asset.uri, photoDate);
     } catch (err) {
       console.error("Image pick error:", err);
     }
   }, []);
 
-  const analyzeImage = async (uri: string) => {
+  const analyzeImage = async (uri: string, dateStr?: string) => {
     setLoading(true);
     try {
       const baseUrl = getApiUrl();
@@ -263,7 +322,7 @@ export default function HomeScreen() {
         setResult({ teamScore: 0, gameName: "Unknown", players: [], error: data.error });
       } else {
         setResult(data);
-        await saveToHistory(data, uri);
+        await saveToHistory(data, uri, dateStr);
       }
 
       if (Platform.OS !== "web") {
@@ -286,12 +345,49 @@ export default function HomeScreen() {
     setImageUri(null);
     setResult(null);
     setShowHistory(false);
+    setPlayedDate(null);
+    setCurrentHistoryId(null);
   };
 
   const viewHistoryItem = (item: HistoryItem) => {
     setResult(item.result);
     setImageUri(item.imageUri || null);
+    setPlayedDate(item.playedDate || null);
+    setCurrentHistoryId(item.id);
     setShowHistory(false);
+  };
+
+  const formatPlayedDate = (iso: string) => {
+    const d = new Date(iso);
+    return d.toLocaleDateString(undefined, {
+      weekday: "short",
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
+  const openDateEditor = () => {
+    if (playedDate) {
+      const d = new Date(playedDate);
+      const month = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      const year = d.getFullYear();
+      const hours = String(d.getHours()).padStart(2, "0");
+      const mins = String(d.getMinutes()).padStart(2, "0");
+      setDateInput(`${month}/${day}/${year} ${hours}:${mins}`);
+    }
+    setEditingDate(true);
+  };
+
+  const saveDateEdit = () => {
+    const parsed = new Date(dateInput);
+    if (!isNaN(parsed.getTime())) {
+      updatePlayedDate(parsed.toISOString());
+    }
+    setEditingDate(false);
   };
 
   if (showHistory) {
@@ -325,7 +421,12 @@ export default function HomeScreen() {
             </View>
           ) : (
             history.map((item) => (
-              <HistoryCard key={item.id} item={item} onPress={() => viewHistoryItem(item)} />
+              <HistoryCard
+                key={item.id}
+                item={item}
+                onPress={() => viewHistoryItem(item)}
+                onDelete={() => deleteHistoryItem(item.id)}
+              />
             ))
           )}
         </ScrollView>
@@ -394,6 +495,23 @@ export default function HomeScreen() {
                   <View style={styles.previewOverlay}>
                     <Text style={styles.gameLabel}>{result.gameName}</Text>
                   </View>
+                </Animated.View>
+              )}
+
+              {playedDate && (
+                <Animated.View
+                  entering={Platform.OS !== "web" ? FadeInUp.delay(50).springify() : undefined}
+                  style={styles.playedDateCard}
+                >
+                  <Ionicons name="calendar-outline" size={16} color={Colors.textSecondary} />
+                  <Text style={styles.playedDateLabel}>Played:</Text>
+                  <Text style={styles.playedDateValue}>{formatPlayedDate(playedDate)}</Text>
+                  <Pressable
+                    onPress={openDateEditor}
+                    style={({ pressed }) => [styles.editDateBtn, pressed && { opacity: 0.5 }]}
+                  >
+                    <Feather name="edit-2" size={14} color={Colors.accent} />
+                  </Pressable>
                 </Animated.View>
               )}
 
@@ -466,6 +584,37 @@ export default function HomeScreen() {
             </>
           )}
         </ScrollView>
+
+        <Modal visible={editingDate} transparent animationType="fade">
+          <Pressable style={styles.modalOverlay} onPress={() => setEditingDate(false)}>
+            <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
+              <Text style={styles.modalTitle}>Edit Played Date</Text>
+              <Text style={styles.modalHint}>Format: MM/DD/YYYY HH:MM</Text>
+              <TextInput
+                style={styles.modalInput}
+                value={dateInput}
+                onChangeText={setDateInput}
+                placeholder="01/15/2026 14:30"
+                placeholderTextColor={Colors.textMuted}
+                autoFocus
+              />
+              <View style={styles.modalButtons}>
+                <Pressable
+                  onPress={() => setEditingDate(false)}
+                  style={({ pressed }) => [styles.modalCancelBtn, pressed && { opacity: 0.6 }]}
+                >
+                  <Text style={styles.modalCancelText}>Cancel</Text>
+                </Pressable>
+                <Pressable
+                  onPress={saveDateEdit}
+                  style={({ pressed }) => [styles.modalSaveBtn, pressed && { opacity: 0.6 }]}
+                >
+                  <Text style={styles.modalSaveText}>Save</Text>
+                </Pressable>
+              </View>
+            </Pressable>
+          </Pressable>
+        </Modal>
       </View>
     );
   }
@@ -568,6 +717,7 @@ export default function HomeScreen() {
                     key={item.id}
                     item={item}
                     onPress={() => viewHistoryItem(item)}
+                    onDelete={() => deleteHistoryItem(item.id)}
                   />
                 ))}
               </View>
@@ -886,12 +1036,24 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   historyCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
     backgroundColor: Colors.surface,
     borderRadius: 14,
+    overflow: "hidden" as const,
+  },
+  historyCardContent: {
+    flex: 1,
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    justifyContent: "space-between" as const,
     padding: 16,
+  },
+  historyDeleteBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 16,
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
   },
   historyLeft: {
     flexDirection: "row",
@@ -935,5 +1097,95 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Colors.textMuted,
     textAlign: "center",
+  },
+  playedDateCard: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    backgroundColor: Colors.surface,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 8,
+  },
+  playedDateLabel: {
+    fontFamily: "DMSans_500Medium",
+    fontSize: 13,
+    color: Colors.textSecondary,
+  },
+  playedDateValue: {
+    fontFamily: "DMSans_500Medium",
+    fontSize: 13,
+    color: Colors.text,
+    flex: 1,
+  },
+  editDateBtn: {
+    padding: 4,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.7)",
+    justifyContent: "center" as const,
+    alignItems: "center" as const,
+    padding: 30,
+  },
+  modalContent: {
+    backgroundColor: Colors.surface,
+    borderRadius: 20,
+    padding: 24,
+    width: "100%" as const,
+    maxWidth: 340,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+  },
+  modalTitle: {
+    fontFamily: "DMSans_700Bold",
+    fontSize: 18,
+    color: Colors.text,
+    marginBottom: 4,
+  },
+  modalHint: {
+    fontFamily: "DMSans_400Regular",
+    fontSize: 12,
+    color: Colors.textMuted,
+    marginBottom: 16,
+  },
+  modalInput: {
+    fontFamily: "DMSans_500Medium",
+    fontSize: 16,
+    color: Colors.text,
+    backgroundColor: Colors.background,
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    marginBottom: 20,
+  },
+  modalButtons: {
+    flexDirection: "row" as const,
+    gap: 12,
+  },
+  modalCancelBtn: {
+    flex: 1,
+    alignItems: "center" as const,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: Colors.surfaceLight,
+  },
+  modalCancelText: {
+    fontFamily: "DMSans_600SemiBold",
+    fontSize: 14,
+    color: Colors.textSecondary,
+  },
+  modalSaveBtn: {
+    flex: 1,
+    alignItems: "center" as const,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: Colors.accent,
+  },
+  modalSaveText: {
+    fontFamily: "DMSans_600SemiBold",
+    fontSize: 14,
+    color: Colors.background,
   },
 });
