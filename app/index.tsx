@@ -1905,22 +1905,28 @@ const styles = StyleSheet.create({
   modalCancelBtn: {
     flex: 1,
     alignItems: "center" as const,
+    justifyContent: "center" as const,
     paddingVertical: 12,
+    paddingHorizontal: 8,
     borderRadius: 12,
   },
   modalCancelText: {
     fontFamily: "DMSans_600SemiBold",
     fontSize: 14,
+    textAlign: "center" as const,
   },
   modalSaveBtn: {
     flex: 1,
     alignItems: "center" as const,
+    justifyContent: "center" as const,
     paddingVertical: 12,
+    paddingHorizontal: 8,
     borderRadius: 12,
   },
   modalSaveText: {
     fontFamily: "DMSans_600SemiBold",
     fontSize: 14,
+    textAlign: "center" as const,
   },
   deleteModalMessage: {
     fontFamily: "DMSans_400Regular",
