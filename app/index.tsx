@@ -34,7 +34,8 @@ import Animated, {
 import { getApiUrl } from "@/lib/query-client";
 import { fetch } from "expo/fetch";
 import DateTimePicker from "@react-native-community/datetimepicker";
-import Colors from "@/constants/colors";
+import { type ThemeColors } from "@/constants/colors";
+import { useTheme, AppearanceMode } from "@/contexts/ThemeContext";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -166,13 +167,6 @@ const sortHistory = (items: HistoryItem[], sort: SortOption): HistoryItem[] => {
   }
 };
 
-const PLAYER_COLOR_MAP: Record<string, string> = {
-  blue: Colors.playerColors.blue,
-  red: Colors.playerColors.red,
-  yellow: Colors.playerColors.yellow,
-  purple: Colors.playerColors.purple,
-};
-
 const PLAYER_COLOR_LABELS: Record<string, string> = {
   blue: "Blue",
   red: "Red",
@@ -187,13 +181,21 @@ function PlayerCard({
   index,
   customName,
   onNameChange,
+  themeColors,
 }: {
   player: PlayerScore;
   index: number;
   customName?: string;
   onNameChange?: (name: string) => void;
+  themeColors: ThemeColors;
 }) {
-  const color = PLAYER_COLOR_MAP[player.color] || Colors.accent;
+  const playerColorMap: Record<string, string> = {
+    blue: themeColors.playerColors.blue,
+    red: themeColors.playerColors.red,
+    yellow: themeColors.playerColors.yellow,
+    purple: themeColors.playerColors.purple,
+  };
+  const color = playerColorMap[player.color] || themeColors.accent;
   const progress = useSharedValue(0);
   const [editing, setEditing] = useState(false);
   const [nameInput, setNameInput] = useState(customName || "");
@@ -216,20 +218,20 @@ function PlayerCard({
   return (
     <Animated.View
       entering={Platform.OS !== "web" ? FadeInDown.delay(200 + index * 100).springify() : undefined}
-      style={[styles.playerCard, { borderLeftColor: color, borderLeftWidth: 3 }]}
+      style={[styles.playerCard, { borderLeftColor: color, borderLeftWidth: 3, backgroundColor: themeColors.surface }]}
     >
       <View style={styles.playerHeader}>
         <View style={[styles.colorDot, { backgroundColor: color }]} />
         {editing ? (
           <TextInput
-            style={[styles.playerNameInput, { color }]}
+            style={[styles.playerNameInput, { color, borderBottomColor: themeColors.accent }]}
             value={nameInput}
             onChangeText={setNameInput}
             onBlur={handleSaveName}
             onSubmitEditing={handleSaveName}
             autoFocus
             placeholder={player.name}
-            placeholderTextColor={Colors.textMuted}
+            placeholderTextColor={themeColors.textMuted}
             returnKeyType="done"
             autoCapitalize="words"
           />
@@ -241,15 +243,15 @@ function PlayerCard({
             }}
             style={styles.playerNameBtn}
           >
-            <Text style={[styles.playerName, customName ? {} : { color: Colors.textSecondary }]} numberOfLines={1}>
+            <Text style={[styles.playerName, { color: customName ? themeColors.text : themeColors.textSecondary }]} numberOfLines={1}>
               {displayName}
             </Text>
-            <Feather name="edit-2" size={11} color={Colors.textMuted} style={{ marginLeft: 4 }} />
+            <Feather name="edit-2" size={11} color={themeColors.textMuted} style={{ marginLeft: 4 }} />
           </Pressable>
         )}
         <Text style={[styles.playerScore, { color }]}>{player.score.toLocaleString()}</Text>
       </View>
-      <View style={styles.playerBarBg}>
+      <View style={[styles.playerBarBg, { backgroundColor: themeColors.surfaceLight }]}>
         <Animated.View style={[styles.playerBar, { backgroundColor: color }, barStyle]} />
       </View>
     </Animated.View>
@@ -263,11 +265,13 @@ function HistoryCard({
   onPress,
   onDelete,
   dateFormat,
+  themeColors,
 }: {
   item: HistoryItem;
   onPress: () => void;
   onDelete: () => void;
   dateFormat: DateFormatKey;
+  themeColors: ThemeColors;
 }) {
   const dateSource = item.playedDate || new Date(item.timestamp).toISOString();
   const timeStr = formatWithKey(typeof dateSource === "string" ? dateSource : new Date(dateSource).toISOString(), dateFormat);
@@ -318,7 +322,7 @@ function HistoryCard({
 
   return (
     <View style={styles.historyCardWrapper}>
-      <Animated.View style={[styles.historyDeleteArea, deleteOpacity]}>
+      <Animated.View style={[styles.historyDeleteArea, { backgroundColor: themeColors.danger }, deleteOpacity]}>
         <Pressable
           onPress={() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -330,20 +334,20 @@ function HistoryCard({
           <Text style={styles.historyDeleteText}>Delete</Text>
         </Pressable>
       </Animated.View>
-      <Animated.View style={[styles.historyCard, cardAnimStyle]} {...panResponder.panHandlers}>
+      <Animated.View style={[styles.historyCard, { backgroundColor: themeColors.surface }, cardAnimStyle]} {...panResponder.panHandlers}>
         <Pressable
           onPress={handlePress}
           style={({ pressed }) => [styles.historyCardContent, pressed && { opacity: 0.7 }]}
         >
           <View style={styles.historyLeft}>
-            <MaterialCommunityIcons name="gamepad-variant" size={20} color={Colors.accent} />
+            <MaterialCommunityIcons name="gamepad-variant" size={20} color={themeColors.accent} />
             <View style={{ marginLeft: 12, flex: 1 }}>
-              <Text style={styles.historyTime}>{timeStr}</Text>
+              <Text style={[styles.historyTime, { color: themeColors.textSecondary }]}>{timeStr}</Text>
             </View>
           </View>
           <View style={styles.historyRight}>
-            <Text style={styles.historyScore}>{item.result.teamScore.toLocaleString()}</Text>
-            <Feather name="chevron-right" size={16} color={Colors.textMuted} />
+            <Text style={[styles.historyScore, { color: themeColors.accent }]}>{item.result.teamScore.toLocaleString()}</Text>
+            <Feather name="chevron-right" size={16} color={themeColors.textMuted} />
           </View>
         </Pressable>
       </Animated.View>
@@ -353,6 +357,7 @@ function HistoryCard({
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
+  const { colors, mode, setMode, isDark } = useTheme();
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ParsedResult | null>(null);
@@ -758,15 +763,15 @@ export default function HomeScreen() {
 
   if (showSettings) {
     return (
-      <View style={[styles.container, { paddingTop: insets.top + webTopInset }]}>
+      <View style={[styles.container, { paddingTop: insets.top + webTopInset, backgroundColor: colors.background }]}>
         <View style={styles.header}>
           <Pressable
             onPress={() => setShowSettings(false)}
             style={({ pressed }) => [styles.headerBtn, pressed && { opacity: 0.6 }]}
           >
-            <Ionicons name="arrow-back" size={24} color={Colors.text} />
+            <Ionicons name="arrow-back" size={24} color={colors.text} />
           </Pressable>
-          <Text style={styles.headerTitle}>Settings</Text>
+          <Text style={[styles.headerTitle, { color: colors.text }]}>Settings</Text>
           <View style={{ width: 40 }} />
         </View>
         <ScrollView
@@ -778,29 +783,70 @@ export default function HomeScreen() {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.settingsSection}>
-            <Text style={styles.settingsSectionTitle}>Date Format</Text>
-            <Text style={styles.settingsSectionSubtitle}>Applied everywhere dates are shown</Text>
-            <View style={styles.settingsOptionsList}>
+            <Text style={[styles.settingsSectionTitle, { color: colors.text }]}>Appearance</Text>
+            <Text style={[styles.settingsSectionSubtitle, { color: colors.textMuted }]}>Choose your preferred theme</Text>
+            <View style={[styles.settingsOptionsList, { backgroundColor: colors.surface, borderColor: colors.cardBorder }]}>
+              {(["dark", "light", "system"] as AppearanceMode[]).map((m) => (
+                <Pressable
+                  key={m}
+                  onPress={() => setMode(m)}
+                  style={({ pressed }) => [
+                    styles.settingsOptionRow,
+                    { borderBottomColor: colors.cardBorder },
+                    mode === m && { backgroundColor: colors.accentDim },
+                    pressed && { opacity: 0.6 },
+                  ]}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+                    <Ionicons
+                      name={m === "dark" ? "moon-outline" : m === "light" ? "sunny-outline" : "phone-portrait-outline"}
+                      size={18}
+                      color={mode === m ? colors.accent : colors.textSecondary}
+                    />
+                    <Text
+                      style={[
+                        styles.settingsOptionText,
+                        { color: mode === m ? colors.accent : colors.textSecondary },
+                        mode === m && { fontFamily: "DMSans_600SemiBold" },
+                      ]}
+                    >
+                      {m === "dark" ? "Dark Mode" : m === "light" ? "Light Mode" : "System"}
+                    </Text>
+                  </View>
+                  {mode === m && (
+                    <Ionicons name="checkmark" size={20} color={colors.accent} />
+                  )}
+                </Pressable>
+              ))}
+            </View>
+          </View>
+
+          <View style={styles.settingsSection}>
+            <Text style={[styles.settingsSectionTitle, { color: colors.text }]}>Date Format</Text>
+            <Text style={[styles.settingsSectionSubtitle, { color: colors.textMuted }]}>Applied everywhere dates are shown</Text>
+            <View style={[styles.settingsOptionsList, { backgroundColor: colors.surface, borderColor: colors.cardBorder }]}>
               {(Object.keys(DATE_FORMAT_LABELS) as DateFormatKey[]).map((key) => (
                 <Pressable
                   key={key}
                   onPress={() => handleDateFormatChange(key)}
                   style={({ pressed }) => [
                     styles.settingsOptionRow,
-                    dateFormat === key && styles.settingsOptionActive,
+                    { borderBottomColor: colors.cardBorder },
+                    dateFormat === key && { backgroundColor: colors.accentDim },
                     pressed && { opacity: 0.6 },
                   ]}
                 >
                   <Text
                     style={[
                       styles.settingsOptionText,
-                      dateFormat === key && styles.settingsOptionTextActive,
+                      { color: dateFormat === key ? colors.accent : colors.textSecondary },
+                      dateFormat === key && { fontFamily: "DMSans_600SemiBold" },
                     ]}
                   >
                     {DATE_FORMAT_LABELS[key]}
                   </Text>
                   {dateFormat === key && (
-                    <Ionicons name="checkmark" size={20} color={Colors.accent} />
+                    <Ionicons name="checkmark" size={20} color={colors.accent} />
                   )}
                 </Pressable>
               ))}
@@ -808,29 +854,31 @@ export default function HomeScreen() {
           </View>
 
           <View style={styles.settingsSection}>
-            <Text style={styles.settingsSectionTitle}>Default Sort</Text>
-            <Text style={styles.settingsSectionSubtitle}>Applied to the results list</Text>
-            <View style={styles.settingsOptionsList}>
+            <Text style={[styles.settingsSectionTitle, { color: colors.text }]}>Default Sort</Text>
+            <Text style={[styles.settingsSectionSubtitle, { color: colors.textMuted }]}>Applied to the results list</Text>
+            <View style={[styles.settingsOptionsList, { backgroundColor: colors.surface, borderColor: colors.cardBorder }]}>
               {(Object.keys(SORT_LABELS) as SortOption[]).map((option) => (
                 <Pressable
                   key={option}
                   onPress={() => handleDefaultSortFromSettings(option)}
                   style={({ pressed }) => [
                     styles.settingsOptionRow,
-                    sortOption === option && styles.settingsOptionActive,
+                    { borderBottomColor: colors.cardBorder },
+                    sortOption === option && { backgroundColor: colors.accentDim },
                     pressed && { opacity: 0.6 },
                   ]}
                 >
                   <Text
                     style={[
                       styles.settingsOptionText,
-                      sortOption === option && styles.settingsOptionTextActive,
+                      { color: sortOption === option ? colors.accent : colors.textSecondary },
+                      sortOption === option && { fontFamily: "DMSans_600SemiBold" },
                     ]}
                   >
                     {SORT_LABELS[option]}
                   </Text>
                   {sortOption === option && (
-                    <Ionicons name="checkmark" size={20} color={Colors.accent} />
+                    <Ionicons name="checkmark" size={20} color={colors.accent} />
                   )}
                 </Pressable>
               ))}
@@ -838,25 +886,25 @@ export default function HomeScreen() {
           </View>
 
           <View style={styles.settingsSection}>
-            <Text style={styles.settingsSectionTitle}>Export Scores</Text>
-            <Text style={styles.settingsSectionSubtitle}>Download your scan data</Text>
-            <View style={styles.settingsOptionsList}>
-              <View style={styles.settingsExportRow}>
+            <Text style={[styles.settingsSectionTitle, { color: colors.text }]}>Export Scores</Text>
+            <Text style={[styles.settingsSectionSubtitle, { color: colors.textMuted }]}>Download your scan data</Text>
+            <View style={[styles.settingsOptionsList, { backgroundColor: colors.surface, borderColor: colors.cardBorder }]}>
+              <View style={[styles.settingsExportRow, { borderBottomColor: colors.cardBorder }]}>
                 <View style={styles.settingsExportLeft}>
-                  <Ionicons name="document-text-outline" size={20} color={Colors.textSecondary} />
-                  <Text style={styles.settingsOptionText}>Export as CSV</Text>
+                  <Ionicons name="document-text-outline" size={20} color={colors.textSecondary} />
+                  <Text style={[styles.settingsOptionText, { color: colors.textSecondary }]}>Export as CSV</Text>
                 </View>
-                <View style={styles.comingSoonBadge}>
-                  <Text style={styles.comingSoonText}>Coming Soon</Text>
+                <View style={[styles.comingSoonBadge, { backgroundColor: colors.surfaceLight }]}>
+                  <Text style={[styles.comingSoonText, { color: colors.textMuted }]}>Coming Soon</Text>
                 </View>
               </View>
-              <View style={styles.settingsExportRow}>
+              <View style={[styles.settingsExportRow, { borderBottomColor: colors.cardBorder }]}>
                 <View style={styles.settingsExportLeft}>
-                  <Ionicons name="code-slash-outline" size={20} color={Colors.textSecondary} />
-                  <Text style={styles.settingsOptionText}>Export as JSON</Text>
+                  <Ionicons name="code-slash-outline" size={20} color={colors.textSecondary} />
+                  <Text style={[styles.settingsOptionText, { color: colors.textSecondary }]}>Export as JSON</Text>
                 </View>
-                <View style={styles.comingSoonBadge}>
-                  <Text style={styles.comingSoonText}>Coming Soon</Text>
+                <View style={[styles.comingSoonBadge, { backgroundColor: colors.surfaceLight }]}>
+                  <Text style={[styles.comingSoonText, { color: colors.textMuted }]}>Coming Soon</Text>
                 </View>
               </View>
             </View>
@@ -869,20 +917,20 @@ export default function HomeScreen() {
   if (showHistory) {
     const sortedHistory = sortHistory(history, sortOption);
     return (
-      <View style={[styles.container, { paddingTop: insets.top + webTopInset }]}>
+      <View style={[styles.container, { paddingTop: insets.top + webTopInset, backgroundColor: colors.background }]}>
         <View style={styles.header}>
           <Pressable
             onPress={() => setShowHistory(false)}
             style={({ pressed }) => [styles.headerBtn, pressed && { opacity: 0.6 }]}
           >
-            <Ionicons name="arrow-back" size={24} color={Colors.text} />
+            <Ionicons name="arrow-back" size={24} color={colors.text} />
           </Pressable>
-          <Text style={styles.headerTitle}>Results</Text>
+          <Text style={[styles.headerTitle, { color: colors.text }]}>Results</Text>
           <Pressable
             onPress={() => setShowSortPicker(true)}
             style={({ pressed }) => [styles.headerBtn, pressed && { opacity: 0.6 }]}
           >
-            <Ionicons name="swap-vertical" size={22} color={Colors.text} />
+            <Ionicons name="swap-vertical" size={22} color={colors.text} />
           </Pressable>
         </View>
         <ScrollView
@@ -895,9 +943,9 @@ export default function HomeScreen() {
         >
           {history.length === 0 ? (
             <View style={styles.emptyState}>
-              <Ionicons name="time-outline" size={48} color={Colors.textMuted} />
-              <Text style={styles.emptyText}>No scans yet</Text>
-              <Text style={styles.emptySubtext}>
+              <Ionicons name="time-outline" size={48} color={colors.textMuted} />
+              <Text style={[styles.emptyText, { color: colors.textSecondary }]}>No scans yet</Text>
+              <Text style={[styles.emptySubtext, { color: colors.textMuted }]}>
                 Your parsed game scores will appear here
               </Text>
             </View>
@@ -909,6 +957,7 @@ export default function HomeScreen() {
                 onPress={() => viewHistoryItem(item)}
                 onDelete={() => setPendingDeleteId(item.id)}
                 dateFormat={dateFormat}
+                themeColors={colors}
               />
             ))
           )}
@@ -916,19 +965,19 @@ export default function HomeScreen() {
 
         <Modal visible={!!pendingDeleteId} transparent animationType="fade">
           <Pressable style={styles.modalOverlay} onPress={() => setPendingDeleteId(null)}>
-            <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
-              <Text style={styles.modalTitle}>Delete Entry</Text>
-              <Text style={styles.deleteModalMessage}>Are you sure you want to delete this score entry?</Text>
+            <Pressable style={[styles.modalContent, { backgroundColor: colors.surface, borderColor: colors.cardBorder }]} onPress={(e) => e.stopPropagation()}>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>Delete Entry</Text>
+              <Text style={[styles.deleteModalMessage, { color: colors.textSecondary }]}>Are you sure you want to delete this score entry?</Text>
               <View style={styles.modalButtons}>
                 <Pressable
                   onPress={() => setPendingDeleteId(null)}
-                  style={({ pressed }) => [styles.modalCancelBtn, pressed && { opacity: 0.6 }]}
+                  style={({ pressed }) => [styles.modalCancelBtn, { backgroundColor: colors.surfaceLight }, pressed && { opacity: 0.6 }]}
                 >
-                  <Text style={styles.modalCancelText}>Cancel</Text>
+                  <Text style={[styles.modalCancelText, { color: colors.textSecondary }]}>Cancel</Text>
                 </Pressable>
                 <Pressable
                   onPress={confirmDeleteItem}
-                  style={({ pressed }) => [styles.deleteConfirmBtn, pressed && { opacity: 0.6 }]}
+                  style={({ pressed }) => [styles.deleteConfirmBtn, { backgroundColor: colors.danger }, pressed && { opacity: 0.6 }]}
                 >
                   <Text style={styles.deleteConfirmText}>Delete</Text>
                 </Pressable>
@@ -939,28 +988,30 @@ export default function HomeScreen() {
 
         <Modal visible={showSortPicker} transparent animationType="fade">
           <Pressable style={styles.modalOverlay} onPress={() => setShowSortPicker(false)}>
-            <Pressable style={styles.sortModalContent} onPress={(e) => e.stopPropagation()}>
-              <Text style={styles.modalTitle}>Sort By</Text>
+            <Pressable style={[styles.sortModalContent, { backgroundColor: colors.surface, borderColor: colors.cardBorder }]} onPress={(e) => e.stopPropagation()}>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>Sort By</Text>
               {(Object.keys(SORT_LABELS) as SortOption[]).map((option) => (
                 <Pressable
                   key={option}
                   onPress={() => handleSortChange(option)}
                   style={({ pressed }) => [
                     styles.sortOptionRow,
-                    sortOption === option && styles.sortOptionActive,
+                    { borderBottomColor: colors.cardBorder },
+                    sortOption === option && { backgroundColor: colors.accentDim },
                     pressed && { opacity: 0.6 },
                   ]}
                 >
                   <Text
                     style={[
                       styles.sortOptionText,
-                      sortOption === option && styles.sortOptionTextActive,
+                      { color: sortOption === option ? colors.accent : colors.textSecondary },
+                      sortOption === option && { fontFamily: "DMSans_700Bold" },
                     ]}
                   >
                     {SORT_LABELS[option]}
                   </Text>
                   {sortOption === option && (
-                    <Ionicons name="checkmark" size={20} color={Colors.accent} />
+                    <Ionicons name="checkmark" size={20} color={colors.accent} />
                   )}
                 </Pressable>
               ))}
@@ -973,7 +1024,7 @@ export default function HomeScreen() {
 
   if (result && !loading) {
     return (
-      <View style={[styles.container, { paddingTop: insets.top + webTopInset }]}>
+      <View style={[styles.container, { paddingTop: insets.top + webTopInset, backgroundColor: colors.background }]}>
         <View style={styles.header}>
           <Pressable
             onPress={() => {
@@ -982,14 +1033,14 @@ export default function HomeScreen() {
             }}
             style={({ pressed }) => [styles.headerBtn, pressed && { opacity: 0.6 }]}
           >
-            <Ionicons name="arrow-back" size={24} color={Colors.text} />
+            <Ionicons name="arrow-back" size={24} color={colors.text} />
           </Pressable>
-          <Text style={styles.headerTitle}>Results</Text>
+          <Text style={[styles.headerTitle, { color: colors.text }]}>Results</Text>
           <Pressable
             onPress={() => setShowHistory(true)}
             style={({ pressed }) => [styles.headerBtn, pressed && { opacity: 0.6 }]}
           >
-            <Ionicons name="time-outline" size={22} color={Colors.text} />
+            <Ionicons name="time-outline" size={22} color={colors.text} />
           </Pressable>
         </View>
 
@@ -1006,14 +1057,14 @@ export default function HomeScreen() {
               entering={Platform.OS !== "web" ? FadeIn : undefined}
               style={styles.errorCard}
             >
-              <Ionicons name="alert-circle" size={40} color={Colors.danger} />
-              <Text style={styles.errorText}>{result.error}</Text>
+              <Ionicons name="alert-circle" size={40} color={colors.danger} />
+              <Text style={[styles.errorText, { color: colors.textSecondary }]}>{result.error}</Text>
               <Pressable
                 onPress={resetState}
-                style={({ pressed }) => [styles.retryBtn, pressed && { opacity: 0.7 }]}
+                style={({ pressed }) => [styles.retryBtn, { backgroundColor: colors.accentDim, borderColor: colors.accentBorder }, pressed && { opacity: 0.7 }]}
               >
-                <Feather name="refresh-cw" size={18} color={Colors.accent} />
-                <Text style={styles.retryText}>Try Another Image</Text>
+                <Feather name="refresh-cw" size={18} color={colors.accent} />
+                <Text style={[styles.retryText, { color: colors.accent }]}>Try Another Image</Text>
               </Pressable>
             </Animated.View>
           ) : (
@@ -1029,7 +1080,7 @@ export default function HomeScreen() {
                     contentFit="cover"
                   />
                   <LinearGradient
-                    colors={["transparent", "rgba(10, 14, 26, 0.9)"]}
+                    colors={["transparent", isDark ? "rgba(10, 14, 26, 0.9)" : "rgba(242, 244, 248, 0.9)"]}
                     style={styles.previewGradient}
                   />
                   <View style={styles.previewOverlay} />
@@ -1039,35 +1090,35 @@ export default function HomeScreen() {
               {playedDate && (
                 <Animated.View
                   entering={Platform.OS !== "web" ? FadeInUp.delay(50).springify() : undefined}
-                  style={styles.playedDateCard}
+                  style={[styles.playedDateCard, { backgroundColor: colors.surface }]}
                 >
-                  <Ionicons name="calendar-outline" size={16} color={Colors.textSecondary} />
-                  <Text style={styles.playedDateLabel}>Played:</Text>
-                  <Text style={styles.playedDateValue}>{formatPlayedDate(playedDate)}</Text>
+                  <Ionicons name="calendar-outline" size={16} color={colors.textSecondary} />
+                  <Text style={[styles.playedDateLabel, { color: colors.textSecondary }]}>Played:</Text>
+                  <Text style={[styles.playedDateValue, { color: colors.text }]}>{formatPlayedDate(playedDate)}</Text>
                   <Pressable
                     onPress={openDateEditor}
                     style={({ pressed }) => [styles.editDateBtn, pressed && { opacity: 0.5 }]}
                   >
-                    <Feather name="edit-2" size={14} color={Colors.accent} />
+                    <Feather name="edit-2" size={14} color={colors.accent} />
                   </Pressable>
                 </Animated.View>
               )}
 
               <Animated.View
                 entering={Platform.OS !== "web" ? FadeInUp.delay(100).springify() : undefined}
-                style={styles.totalScoreCard}
+                style={[styles.totalScoreCard, { borderColor: colors.accentBorder }]}
               >
                 <LinearGradient
-                  colors={["rgba(0, 229, 204, 0.12)", "rgba(0, 229, 204, 0.03)"]}
+                  colors={[`${colors.accent}1F`, `${colors.accent}08`]}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 1 }}
                   style={StyleSheet.absoluteFill}
                 />
-                <Text style={styles.totalLabel}>TEAM SCORE</Text>
-                <Text style={styles.totalScore}>{result.teamScore.toLocaleString()}</Text>
+                <Text style={[styles.totalLabel, { color: colors.textSecondary }]}>TEAM SCORE</Text>
+                <Text style={[styles.totalScore, { color: colors.accent }]}>{result.teamScore.toLocaleString()}</Text>
                 <View style={styles.playerCount}>
-                  <Ionicons name="people" size={14} color={Colors.textSecondary} />
-                  <Text style={styles.playerCountText}>
+                  <Ionicons name="people" size={14} color={colors.textSecondary} />
+                  <Text style={[styles.playerCountText, { color: colors.textSecondary }]}>
                     {result.players.length} player{result.players.length !== 1 ? "s" : ""}
                   </Text>
                 </View>
@@ -1078,32 +1129,32 @@ export default function HomeScreen() {
                   entering={Platform.OS !== "web" ? FadeInUp.delay(150).springify() : undefined}
                   style={styles.objectivesSection}
                 >
-                  <Text style={styles.sectionTitle}>Objective Scores</Text>
+                  <Text style={[styles.sectionTitle, { color: colors.text }]}>Objective Scores</Text>
                   <View style={styles.objectivesRow}>
-                    <View style={styles.objectiveCard}>
+                    <View style={[styles.objectiveCard, { backgroundColor: colors.surface }]}>
                       <MaterialCommunityIcons name="sword-cross" size={22} color="#FF6B6B" />
-                      <Text style={styles.objectiveScore}>
+                      <Text style={[styles.objectiveScore, { color: colors.text }]}>
                         {result.objectiveScores.fightGiantBot.toLocaleString()}
                       </Text>
-                      <Text style={styles.objectiveLabel} numberOfLines={2}>
+                      <Text style={[styles.objectiveLabel, { color: colors.textSecondary }]} numberOfLines={2}>
                         Fight Giant Bot
                       </Text>
                     </View>
-                    <View style={styles.objectiveCard}>
+                    <View style={[styles.objectiveCard, { backgroundColor: colors.surface }]}>
                       <MaterialCommunityIcons name="shield-account" size={22} color="#4ECDC4" />
-                      <Text style={styles.objectiveScore}>
+                      <Text style={[styles.objectiveScore, { color: colors.text }]}>
                         {result.objectiveScores.rescueSpiderMan.toLocaleString()}
                       </Text>
-                      <Text style={styles.objectiveLabel} numberOfLines={2}>
+                      <Text style={[styles.objectiveLabel, { color: colors.textSecondary }]} numberOfLines={2}>
                         Rescue Spider-Man
                       </Text>
                     </View>
-                    <View style={styles.objectiveCard}>
+                    <View style={[styles.objectiveCard, { backgroundColor: colors.surface }]}>
                       <MaterialCommunityIcons name="robot" size={22} color="#FFB347" />
-                      <Text style={styles.objectiveScore}>
+                      <Text style={[styles.objectiveScore, { color: colors.text }]}>
                         {result.objectiveScores.destroyGiantBot.toLocaleString()}
                       </Text>
-                      <Text style={styles.objectiveLabel} numberOfLines={2}>
+                      <Text style={[styles.objectiveLabel, { color: colors.textSecondary }]} numberOfLines={2}>
                         Destroy Giant Bot
                       </Text>
                     </View>
@@ -1112,7 +1163,7 @@ export default function HomeScreen() {
               )}
 
               <View style={styles.playersSection}>
-                <Text style={styles.sectionTitle}>Individual Scores</Text>
+                <Text style={[styles.sectionTitle, { color: colors.text }]}>Individual Scores</Text>
                 {[...result.players]
                   .sort((a, b) => PLAYER_COLOR_ORDER.indexOf(a.color) - PLAYER_COLOR_ORDER.indexOf(b.color))
                   .map((player, i) => (
@@ -1122,6 +1173,7 @@ export default function HomeScreen() {
                       index={i}
                       customName={playerNames[player.color]}
                       onNameChange={(name) => updatePlayerName(player.color, name)}
+                      themeColors={colors}
                     />
                   ))}
               </View>
@@ -1131,31 +1183,31 @@ export default function HomeScreen() {
 
         <Modal visible={editingDate} transparent animationType="fade">
           <Pressable style={styles.modalOverlay} onPress={() => setEditingDate(false)}>
-            <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
-              <Text style={styles.modalTitle}>Edit Played Date</Text>
+            <Pressable style={[styles.modalContent, { backgroundColor: colors.surface, borderColor: colors.cardBorder }]} onPress={(e) => e.stopPropagation()}>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>Edit Played Date</Text>
 
               {Platform.OS === "web" ? (
                 <View style={styles.datePickerRow}>
                   <View style={styles.datePickerField}>
-                    <Text style={styles.datePickerLabel}>Date</Text>
+                    <Text style={[styles.datePickerLabel, { color: colors.textSecondary }]}>Date</Text>
                     <TextInput
-                      style={styles.modalInput}
+                      style={[styles.modalInput, { color: colors.text, backgroundColor: colors.background, borderColor: colors.cardBorder }]}
                       value={webDateStr}
                       onChangeText={handleWebDateChange}
                       placeholder="YYYY-MM-DD"
-                      placeholderTextColor={Colors.textMuted}
+                      placeholderTextColor={colors.textMuted}
                       keyboardType="number-pad"
                       maxLength={10}
                     />
                   </View>
                   <View style={styles.datePickerField}>
-                    <Text style={styles.datePickerLabel}>Time</Text>
+                    <Text style={[styles.datePickerLabel, { color: colors.textSecondary }]}>Time</Text>
                     <TextInput
-                      style={styles.modalInput}
+                      style={[styles.modalInput, { color: colors.text, backgroundColor: colors.background, borderColor: colors.cardBorder }]}
                       value={webTimeStr}
                       onChangeText={handleWebTimeChange}
                       placeholder="HH:MM"
-                      placeholderTextColor={Colors.textMuted}
+                      placeholderTextColor={colors.textMuted}
                       keyboardType="number-pad"
                       maxLength={5}
                     />
@@ -1164,27 +1216,27 @@ export default function HomeScreen() {
               ) : (
                 <View style={styles.nativePickerContainer}>
                   <View style={styles.pickerLabelRow}>
-                    <Ionicons name="calendar-outline" size={18} color={Colors.accent} />
-                    <Text style={styles.pickerTriggerText}>Date</Text>
+                    <Ionicons name="calendar-outline" size={18} color={colors.accent} />
+                    <Text style={[styles.pickerTriggerText, { color: colors.text }]}>Date</Text>
                   </View>
                   <DateTimePicker
                     value={editDate}
                     mode="date"
                     display="spinner"
                     onChange={onDateChange}
-                    themeVariant="dark"
+                    themeVariant={isDark ? "dark" : "light"}
                     style={{ height: 150 }}
                   />
                   <View style={[styles.pickerLabelRow, { marginTop: 12 }]}>
-                    <Ionicons name="time-outline" size={18} color={Colors.accent} />
-                    <Text style={styles.pickerTriggerText}>Time</Text>
+                    <Ionicons name="time-outline" size={18} color={colors.accent} />
+                    <Text style={[styles.pickerTriggerText, { color: colors.text }]}>Time</Text>
                   </View>
                   <DateTimePicker
                     value={editDate}
                     mode="time"
                     display="spinner"
                     onChange={onTimeChange}
-                    themeVariant="dark"
+                    themeVariant={isDark ? "dark" : "light"}
                     style={{ height: 150 }}
                   />
                 </View>
@@ -1193,15 +1245,15 @@ export default function HomeScreen() {
               <View style={styles.modalButtons}>
                 <Pressable
                   onPress={() => setEditingDate(false)}
-                  style={({ pressed }) => [styles.modalCancelBtn, pressed && { opacity: 0.6 }]}
+                  style={({ pressed }) => [styles.modalCancelBtn, { backgroundColor: colors.surfaceLight }, pressed && { opacity: 0.6 }]}
                 >
-                  <Text style={styles.modalCancelText}>Cancel</Text>
+                  <Text style={[styles.modalCancelText, { color: colors.textSecondary }]}>Cancel</Text>
                 </Pressable>
                 <Pressable
                   onPress={saveDateEdit}
-                  style={({ pressed }) => [styles.modalSaveBtn, pressed && { opacity: 0.6 }]}
+                  style={({ pressed }) => [styles.modalSaveBtn, { backgroundColor: colors.accent }, pressed && { opacity: 0.6 }]}
                 >
-                  <Text style={styles.modalSaveText}>Save</Text>
+                  <Text style={[styles.modalSaveText, { color: colors.background }]}>Save</Text>
                 </Pressable>
               </View>
             </Pressable>
@@ -1212,20 +1264,20 @@ export default function HomeScreen() {
   }
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top + webTopInset }]}>
+    <View style={[styles.container, { paddingTop: insets.top + webTopInset, backgroundColor: colors.background }]}>
       <View style={styles.header}>
         <Pressable
           onPress={() => setShowSettings(true)}
           style={({ pressed }) => [styles.headerBtn, pressed && { opacity: 0.6 }]}
         >
-          <Ionicons name="settings-outline" size={22} color={Colors.text} />
+          <Ionicons name="settings-outline" size={22} color={colors.text} />
         </Pressable>
-        <Text style={styles.headerTitle}>Score Slinger</Text>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>Score Slinger</Text>
         <Pressable
           onPress={() => setShowHistory(true)}
           style={({ pressed }) => [styles.headerBtn, pressed && { opacity: 0.6 }]}
         >
-          <Ionicons name="time-outline" size={22} color={Colors.text} />
+          <Ionicons name="time-outline" size={22} color={colors.text} />
         </Pressable>
       </View>
 
@@ -1243,27 +1295,27 @@ export default function HomeScreen() {
                   contentFit="cover"
                 />
                 <View style={styles.loadingOverlay}>
-                  <ActivityIndicator size="large" color={Colors.accent} />
+                  <ActivityIndicator size="large" color={colors.accent} />
                 </View>
               </View>
             )}
-            <Text style={styles.loadingText}>Analyzing scoreboard...</Text>
-            <Text style={styles.loadingSubtext}>
+            <Text style={[styles.loadingText, { color: colors.text }]}>Analyzing scoreboard...</Text>
+            <Text style={[styles.loadingSubtext, { color: colors.textSecondary }]}>
               Extracting player scores and colors
             </Text>
           </Animated.View>
         ) : (
           <>
             <View style={styles.heroSection}>
-              <View style={styles.iconCircle}>
-                <MaterialCommunityIcons
-                  name="image-search"
+              <View style={[styles.iconCircle, { backgroundColor: colors.accentDim, borderColor: colors.accentBorder }]}>
+                <Ionicons
+                  name="images-outline"
                   size={44}
-                  color={Colors.accent}
+                  color={colors.accent}
                 />
               </View>
-              <Text style={styles.heroTitle}>Scan a Scoreboard</Text>
-              <Text style={styles.heroSubtitle}>
+              <Text style={[styles.heroTitle, { color: colors.text }]}>Scan a Scoreboard</Text>
+              <Text style={[styles.heroSubtitle, { color: colors.textSecondary }]}>
                 Take a photo or choose an image of your game's scoreboard to extract team and player scores
               </Text>
             </View>
@@ -1277,36 +1329,37 @@ export default function HomeScreen() {
                 ]}
               >
                 <LinearGradient
-                  colors={[Colors.accent, "#00C4B0"]}
+                  colors={[colors.accent, isDark ? "#00C4B0" : "#009E8E"]}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 0 }}
                   style={StyleSheet.absoluteFill}
                 />
-                <Ionicons name="camera" size={22} color={Colors.background} />
-                <Text style={styles.primaryBtnText}>Take Photo</Text>
+                <Ionicons name="camera" size={22} color={colors.background} />
+                <Text style={[styles.primaryBtnText, { color: colors.background }]}>Take Photo</Text>
               </Pressable>
 
               <Pressable
                 onPress={() => pickImage(false)}
                 style={({ pressed }) => [
                   styles.secondaryBtn,
+                  { backgroundColor: colors.accentDim, borderColor: colors.accentBorder },
                   pressed && { opacity: 0.85, transform: [{ scale: 0.97 }] },
                 ]}
               >
-                <Ionicons name="images" size={22} color={Colors.accent} />
-                <Text style={styles.secondaryBtnText}>Choose from Gallery</Text>
+                <Ionicons name="images" size={22} color={colors.accent} />
+                <Text style={[styles.secondaryBtnText, { color: colors.accent }]}>Choose from Gallery</Text>
               </Pressable>
             </View>
 
             {history.length > 0 && (
               <View style={styles.recentSection}>
                 <View style={styles.recentHeader}>
-                  <Text style={styles.sectionTitle}>Recent Scans</Text>
+                  <Text style={[styles.sectionTitle, { color: colors.text }]}>Recent Scans</Text>
                   <Pressable
                     onPress={() => setShowHistory(true)}
                     style={({ pressed }) => [pressed && { opacity: 0.6 }]}
                   >
-                    <Text style={styles.seeAllText}>See All</Text>
+                    <Text style={[styles.seeAllText, { color: colors.accent }]}>See All</Text>
                   </Pressable>
                 </View>
                 {history.slice(0, 3).map((item) => (
@@ -1316,6 +1369,7 @@ export default function HomeScreen() {
                     onPress={() => viewHistoryItem(item)}
                     onDelete={() => setPendingDeleteId(item.id)}
                     dateFormat={dateFormat}
+                    themeColors={colors}
                   />
                 ))}
               </View>
@@ -1326,19 +1380,19 @@ export default function HomeScreen() {
 
       <Modal visible={!!pendingDeleteId} transparent animationType="fade">
         <Pressable style={styles.modalOverlay} onPress={() => setPendingDeleteId(null)}>
-          <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.modalTitle}>Delete Entry</Text>
-            <Text style={styles.deleteModalMessage}>Are you sure you want to delete this score entry?</Text>
+          <Pressable style={[styles.modalContent, { backgroundColor: colors.surface, borderColor: colors.cardBorder }]} onPress={(e) => e.stopPropagation()}>
+            <Text style={[styles.modalTitle, { color: colors.text }]}>Delete Entry</Text>
+            <Text style={[styles.deleteModalMessage, { color: colors.textSecondary }]}>Are you sure you want to delete this score entry?</Text>
             <View style={styles.modalButtons}>
               <Pressable
                 onPress={() => setPendingDeleteId(null)}
-                style={({ pressed }) => [styles.modalCancelBtn, pressed && { opacity: 0.6 }]}
+                style={({ pressed }) => [styles.modalCancelBtn, { backgroundColor: colors.surfaceLight }, pressed && { opacity: 0.6 }]}
               >
-                <Text style={styles.modalCancelText}>Cancel</Text>
+                <Text style={[styles.modalCancelText, { color: colors.textSecondary }]}>Cancel</Text>
               </Pressable>
               <Pressable
                 onPress={confirmDeleteItem}
-                style={({ pressed }) => [styles.deleteConfirmBtn, pressed && { opacity: 0.6 }]}
+                style={({ pressed }) => [styles.deleteConfirmBtn, { backgroundColor: colors.danger }, pressed && { opacity: 0.6 }]}
               >
                 <Text style={styles.deleteConfirmText}>Delete</Text>
               </Pressable>
@@ -1353,7 +1407,6 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
   },
   header: {
     flexDirection: "row",
@@ -1371,7 +1424,6 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontFamily: "DMSans_700Bold",
     fontSize: 20,
-    color: Colors.text,
   },
   homeContent: {
     flex: 1,
@@ -1386,24 +1438,20 @@ const styles = StyleSheet.create({
     width: 88,
     height: 88,
     borderRadius: 44,
-    backgroundColor: Colors.accentDim,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 24,
     borderWidth: 1,
-    borderColor: Colors.accentBorder,
   },
   heroTitle: {
     fontFamily: "DMSans_700Bold",
     fontSize: 28,
-    color: Colors.text,
     textAlign: "center",
     marginBottom: 12,
   },
   heroSubtitle: {
     fontFamily: "DMSans_400Regular",
     fontSize: 15,
-    color: Colors.textSecondary,
     textAlign: "center",
     lineHeight: 22,
     paddingHorizontal: 20,
@@ -1424,7 +1472,6 @@ const styles = StyleSheet.create({
   primaryBtnText: {
     fontFamily: "DMSans_600SemiBold",
     fontSize: 16,
-    color: Colors.background,
   },
   secondaryBtn: {
     flexDirection: "row",
@@ -1433,14 +1480,11 @@ const styles = StyleSheet.create({
     height: 56,
     borderRadius: 16,
     gap: 10,
-    backgroundColor: Colors.accentDim,
     borderWidth: 1,
-    borderColor: Colors.accentBorder,
   },
   secondaryBtnText: {
     fontFamily: "DMSans_600SemiBold",
     fontSize: 16,
-    color: Colors.accent,
   },
   loadingContainer: {
     flex: 1,
@@ -1467,13 +1511,11 @@ const styles = StyleSheet.create({
   loadingText: {
     fontFamily: "DMSans_600SemiBold",
     fontSize: 18,
-    color: Colors.text,
     marginBottom: 8,
   },
   loadingSubtext: {
     fontFamily: "DMSans_400Regular",
     fontSize: 14,
-    color: Colors.textSecondary,
   },
   resultsContent: {
     paddingHorizontal: 20,
@@ -1505,27 +1547,23 @@ const styles = StyleSheet.create({
   gameLabel: {
     fontFamily: "DMSans_600SemiBold",
     fontSize: 16,
-    color: Colors.text,
   },
   totalScoreCard: {
     borderRadius: 20,
     padding: 28,
     alignItems: "center",
     borderWidth: 1,
-    borderColor: Colors.accentBorder,
     overflow: "hidden",
   },
   totalLabel: {
     fontFamily: "DMSans_600SemiBold",
     fontSize: 12,
-    color: Colors.textSecondary,
     letterSpacing: 2,
     marginBottom: 8,
   },
   totalScore: {
     fontFamily: "DMSans_700Bold",
     fontSize: 52,
-    color: Colors.accent,
     marginBottom: 8,
   },
   playerCount: {
@@ -1536,7 +1574,6 @@ const styles = StyleSheet.create({
   playerCountText: {
     fontFamily: "DMSans_400Regular",
     fontSize: 13,
-    color: Colors.textSecondary,
   },
   objectivesSection: {
     gap: 12,
@@ -1547,7 +1584,6 @@ const styles = StyleSheet.create({
   },
   objectiveCard: {
     flex: 1,
-    backgroundColor: Colors.surface,
     borderRadius: 14,
     padding: 14,
     alignItems: "center" as const,
@@ -1556,12 +1592,10 @@ const styles = StyleSheet.create({
   objectiveScore: {
     fontFamily: "DMSans_700Bold",
     fontSize: 20,
-    color: Colors.text,
   },
   objectiveLabel: {
     fontFamily: "DMSans_400Regular",
     fontSize: 11,
-    color: Colors.textSecondary,
     textAlign: "center" as const,
     lineHeight: 15,
   },
@@ -1571,11 +1605,9 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontFamily: "DMSans_600SemiBold",
     fontSize: 16,
-    color: Colors.text,
     marginBottom: 4,
   },
   playerCard: {
-    backgroundColor: Colors.surface,
     borderRadius: 14,
     padding: 16,
     gap: 12,
@@ -1593,7 +1625,6 @@ const styles = StyleSheet.create({
   playerName: {
     fontFamily: "DMSans_500Medium",
     fontSize: 15,
-    color: Colors.text,
     flex: 1,
   },
   playerNameBtn: {
@@ -1606,14 +1637,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     flex: 1,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.accent,
     paddingVertical: 2,
     paddingHorizontal: 0,
   },
   playerColorLabel: {
     fontFamily: "DMSans_400Regular",
     fontSize: 11,
-    color: Colors.textMuted,
     marginLeft: 20,
     marginTop: -4,
   },
@@ -1623,7 +1652,6 @@ const styles = StyleSheet.create({
   },
   playerBarBg: {
     height: 4,
-    backgroundColor: Colors.surfaceLight,
     borderRadius: 2,
     overflow: "hidden",
   },
@@ -1639,7 +1667,6 @@ const styles = StyleSheet.create({
   errorText: {
     fontFamily: "DMSans_500Medium",
     fontSize: 16,
-    color: Colors.textSecondary,
     textAlign: "center",
     lineHeight: 24,
   },
@@ -1650,15 +1677,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 12,
     borderRadius: 12,
-    backgroundColor: Colors.accentDim,
     borderWidth: 1,
-    borderColor: Colors.accentBorder,
     marginTop: 8,
   },
   retryText: {
     fontFamily: "DMSans_600SemiBold",
     fontSize: 14,
-    color: Colors.accent,
   },
   recentSection: {
     gap: 12,
@@ -1671,7 +1695,6 @@ const styles = StyleSheet.create({
   seeAllText: {
     fontFamily: "DMSans_500Medium",
     fontSize: 14,
-    color: Colors.accent,
   },
   historyList: {
     paddingHorizontal: 20,
@@ -1688,7 +1711,6 @@ const styles = StyleSheet.create({
     top: 0,
     bottom: 0,
     width: 80,
-    backgroundColor: Colors.danger,
     alignItems: "center" as const,
     justifyContent: "center" as const,
     borderTopRightRadius: 14,
@@ -1709,7 +1731,6 @@ const styles = StyleSheet.create({
   historyCard: {
     flexDirection: "row" as const,
     alignItems: "center" as const,
-    backgroundColor: Colors.surface,
     borderRadius: 14,
   },
   historyCardContent: {
@@ -1727,12 +1748,10 @@ const styles = StyleSheet.create({
   historyGame: {
     fontFamily: "DMSans_600SemiBold",
     fontSize: 15,
-    color: Colors.text,
   },
   historyTime: {
     fontFamily: "DMSans_400Regular",
     fontSize: 12,
-    color: Colors.textSecondary,
     marginTop: 2,
   },
   historyRight: {
@@ -1743,7 +1762,6 @@ const styles = StyleSheet.create({
   historyScore: {
     fontFamily: "DMSans_700Bold",
     fontSize: 18,
-    color: Colors.accent,
   },
   emptyState: {
     alignItems: "center",
@@ -1754,18 +1772,15 @@ const styles = StyleSheet.create({
   emptyText: {
     fontFamily: "DMSans_600SemiBold",
     fontSize: 18,
-    color: Colors.textSecondary,
   },
   emptySubtext: {
     fontFamily: "DMSans_400Regular",
     fontSize: 14,
-    color: Colors.textMuted,
     textAlign: "center",
   },
   playedDateCard: {
     flexDirection: "row" as const,
     alignItems: "center" as const,
-    backgroundColor: Colors.surface,
     borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 12,
@@ -1774,12 +1789,10 @@ const styles = StyleSheet.create({
   playedDateLabel: {
     fontFamily: "DMSans_500Medium",
     fontSize: 13,
-    color: Colors.textSecondary,
   },
   playedDateValue: {
     fontFamily: "DMSans_500Medium",
     fontSize: 13,
-    color: Colors.text,
     flex: 1,
   },
   editDateBtn: {
@@ -1793,35 +1806,28 @@ const styles = StyleSheet.create({
     padding: 30,
   },
   modalContent: {
-    backgroundColor: Colors.surface,
     borderRadius: 20,
     padding: 24,
     width: "100%" as const,
     maxWidth: 340,
     borderWidth: 1,
-    borderColor: Colors.cardBorder,
   },
   modalTitle: {
     fontFamily: "DMSans_700Bold",
     fontSize: 18,
-    color: Colors.text,
     marginBottom: 4,
   },
   modalHint: {
     fontFamily: "DMSans_400Regular",
     fontSize: 12,
-    color: Colors.textMuted,
     marginBottom: 16,
   },
   modalInput: {
     fontFamily: "DMSans_500Medium",
     fontSize: 16,
-    color: Colors.text,
-    backgroundColor: Colors.background,
     borderRadius: 12,
     padding: 14,
     borderWidth: 1,
-    borderColor: Colors.cardBorder,
     marginBottom: 20,
   },
   modalButtons: {
@@ -1833,29 +1839,24 @@ const styles = StyleSheet.create({
     alignItems: "center" as const,
     paddingVertical: 12,
     borderRadius: 12,
-    backgroundColor: Colors.surfaceLight,
   },
   modalCancelText: {
     fontFamily: "DMSans_600SemiBold",
     fontSize: 14,
-    color: Colors.textSecondary,
   },
   modalSaveBtn: {
     flex: 1,
     alignItems: "center" as const,
     paddingVertical: 12,
     borderRadius: 12,
-    backgroundColor: Colors.accent,
   },
   modalSaveText: {
     fontFamily: "DMSans_600SemiBold",
     fontSize: 14,
-    color: Colors.background,
   },
   deleteModalMessage: {
     fontFamily: "DMSans_400Regular",
     fontSize: 14,
-    color: Colors.textSecondary,
     marginBottom: 20,
     lineHeight: 20,
   },
@@ -1864,7 +1865,6 @@ const styles = StyleSheet.create({
     alignItems: "center" as const,
     paddingVertical: 12,
     borderRadius: 12,
-    backgroundColor: Colors.danger,
   },
   deleteConfirmText: {
     fontFamily: "DMSans_600SemiBold",
@@ -1883,7 +1883,6 @@ const styles = StyleSheet.create({
   datePickerLabel: {
     fontFamily: "DMSans_500Medium",
     fontSize: 12,
-    color: Colors.textSecondary,
     marginBottom: 6,
   },
   nativePickerContainer: {
@@ -1901,25 +1900,20 @@ const styles = StyleSheet.create({
     flexDirection: "row" as const,
     alignItems: "center" as const,
     gap: 10,
-    backgroundColor: Colors.background,
     borderRadius: 12,
     padding: 14,
     borderWidth: 1,
-    borderColor: Colors.cardBorder,
   },
   pickerTriggerText: {
     fontFamily: "DMSans_500Medium",
     fontSize: 16,
-    color: Colors.text,
   },
   sortModalContent: {
-    backgroundColor: Colors.surface,
     borderRadius: 20,
     padding: 24,
     width: "100%" as const,
     maxWidth: 340,
     borderWidth: 1,
-    borderColor: Colors.cardBorder,
   },
   sortOptionRow: {
     flexDirection: "row" as const,
@@ -1928,22 +1922,10 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 4,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.cardBorder,
-  },
-  sortOptionActive: {
-    backgroundColor: "rgba(0, 200, 255, 0.06)",
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    marginHorizontal: -4,
   },
   sortOptionText: {
     fontFamily: "DMSans_400Regular",
     fontSize: 15,
-    color: Colors.textSecondary,
-  },
-  sortOptionTextActive: {
-    fontFamily: "DMSans_700Bold",
-    color: Colors.accent,
   },
   settingsContent: {
     paddingHorizontal: 20,
@@ -1956,20 +1938,16 @@ const styles = StyleSheet.create({
   settingsSectionTitle: {
     fontFamily: "DMSans_700Bold",
     fontSize: 17,
-    color: Colors.text,
   },
   settingsSectionSubtitle: {
     fontFamily: "DMSans_400Regular",
     fontSize: 13,
-    color: Colors.textMuted,
     marginBottom: 4,
   },
   settingsOptionsList: {
-    backgroundColor: Colors.surface,
     borderRadius: 14,
     overflow: "hidden" as const,
     borderWidth: 1,
-    borderColor: Colors.cardBorder,
   },
   settingsOptionRow: {
     flexDirection: "row" as const,
@@ -1978,19 +1956,10 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 16,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.cardBorder,
-  },
-  settingsOptionActive: {
-    backgroundColor: "rgba(0, 229, 204, 0.06)",
   },
   settingsOptionText: {
     fontFamily: "DMSans_400Regular",
     fontSize: 15,
-    color: Colors.textSecondary,
-  },
-  settingsOptionTextActive: {
-    fontFamily: "DMSans_600SemiBold",
-    color: Colors.accent,
   },
   settingsExportRow: {
     flexDirection: "row" as const,
@@ -1999,7 +1968,6 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 16,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.cardBorder,
   },
   settingsExportLeft: {
     flexDirection: "row" as const,
@@ -2007,7 +1975,6 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   comingSoonBadge: {
-    backgroundColor: Colors.surfaceLight,
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 8,
@@ -2015,6 +1982,5 @@ const styles = StyleSheet.create({
   comingSoonText: {
     fontFamily: "DMSans_500Medium",
     fontSize: 11,
-    color: Colors.textMuted,
   },
 });
