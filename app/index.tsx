@@ -1,5 +1,4 @@
 import React, { useState, useCallback, useEffect, useRef } from "react";
-import * as FileSystem from "expo-file-system";
 import {
   StyleSheet,
   View,
@@ -31,7 +30,8 @@ import Animated, {
   withTiming,
   interpolate,
 } from "react-native-reanimated";
-import { getApiUrl } from "@/lib/query-client";
+import { getApiUrl, apiRequest } from "@/lib/query-client";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetch } from "expo/fetch";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { type ThemeColors } from "@/constants/colors";
@@ -60,14 +60,23 @@ interface ParsedResult {
   error?: string;
 }
 
-interface HistoryItem {
+interface Score {
   id: string;
-  result: ParsedResult;
-  timestamp: number;
-  imageUri?: string;
-  playedDate?: string;
-  playerNames?: Record<string, string>;
-  fileName?: string;
+  uploaderName: string;
+  teamScore: number;
+  achievement: string | null;
+  gameName: string;
+  objectiveScores: {
+    fightGiantBot: number;
+    rescueSpiderMan: number;
+    destroyGiantBot: number;
+  } | null;
+  players: Array<{ name: string; score: number; color: string }>;
+  playerNames: Record<string, string> | null;
+  imageBase64: string | null;
+  imageMimeType: string | null;
+  playedDate: string | null;
+  createdAt: string;
 }
 
 type SortOption =
@@ -141,29 +150,29 @@ const formatWithKey = (iso: string, key: DateFormatKey): string => {
   }
 };
 
-const sortHistory = (items: HistoryItem[], sort: SortOption): HistoryItem[] => {
+const sortScores = (items: Score[], sort: SortOption): Score[] => {
   const sorted = [...items];
   switch (sort) {
     case "upload_recent":
-      return sorted.sort((a, b) => b.timestamp - a.timestamp);
+      return sorted.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     case "upload_oldest":
-      return sorted.sort((a, b) => a.timestamp - b.timestamp);
+      return sorted.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
     case "played_recent":
       return sorted.sort((a, b) => {
-        const da = a.playedDate ? new Date(a.playedDate).getTime() : a.timestamp;
-        const db = b.playedDate ? new Date(b.playedDate).getTime() : b.timestamp;
+        const da = a.playedDate ? new Date(a.playedDate).getTime() : new Date(a.createdAt).getTime();
+        const db = b.playedDate ? new Date(b.playedDate).getTime() : new Date(b.createdAt).getTime();
         return db - da;
       });
     case "played_oldest":
       return sorted.sort((a, b) => {
-        const da = a.playedDate ? new Date(a.playedDate).getTime() : a.timestamp;
-        const db = b.playedDate ? new Date(b.playedDate).getTime() : b.timestamp;
+        const da = a.playedDate ? new Date(a.playedDate).getTime() : new Date(a.createdAt).getTime();
+        const db = b.playedDate ? new Date(b.playedDate).getTime() : new Date(b.createdAt).getTime();
         return da - db;
       });
     case "score_highest":
-      return sorted.sort((a, b) => b.result.teamScore - a.result.teamScore);
+      return sorted.sort((a, b) => b.teamScore - a.teamScore);
     case "score_lowest":
-      return sorted.sort((a, b) => a.result.teamScore - b.result.teamScore);
+      return sorted.sort((a, b) => a.teamScore - b.teamScore);
     default:
       return sorted;
   }
@@ -268,14 +277,16 @@ function HistoryCard({
   onDelete,
   dateFormat,
   themeColors,
+  canDelete,
 }: {
-  item: HistoryItem;
+  item: Score;
   onPress: () => void;
   onDelete: () => void;
   dateFormat: DateFormatKey;
   themeColors: ThemeColors;
+  canDelete: boolean;
 }) {
-  const dateSource = item.playedDate || new Date(item.timestamp).toISOString();
+  const dateSource = item.playedDate || item.createdAt;
   const timeStr = formatWithKey(typeof dateSource === "string" ? dateSource : new Date(dateSource).toISOString(), dateFormat);
 
   const translateX = useSharedValue(0);
@@ -324,19 +335,21 @@ function HistoryCard({
 
   return (
     <View style={styles.historyCardWrapper}>
-      <Animated.View style={[styles.historyDeleteArea, { backgroundColor: themeColors.danger }, deleteOpacity]}>
-        <Pressable
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-            onDelete();
-          }}
-          style={({ pressed }) => [styles.historyDeleteBtn, pressed && { opacity: 0.7 }]}
-        >
-          <Ionicons name="trash-outline" size={20} color="#fff" />
-          <Text style={styles.historyDeleteText}>Delete</Text>
-        </Pressable>
-      </Animated.View>
-      <Animated.View style={[styles.historyCard, { backgroundColor: themeColors.surface }, cardAnimStyle]} {...panResponder.panHandlers}>
+      {canDelete && (
+        <Animated.View style={[styles.historyDeleteArea, { backgroundColor: themeColors.danger }, deleteOpacity]}>
+          <Pressable
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              onDelete();
+            }}
+            style={({ pressed }) => [styles.historyDeleteBtn, pressed && { opacity: 0.7 }]}
+          >
+            <Ionicons name="trash-outline" size={20} color="#fff" />
+            <Text style={styles.historyDeleteText}>Delete</Text>
+          </Pressable>
+        </Animated.View>
+      )}
+      <Animated.View style={[styles.historyCard, { backgroundColor: themeColors.surface }, cardAnimStyle]} {...(canDelete ? panResponder.panHandlers : {})}>
         <Pressable
           onPress={handlePress}
           style={({ pressed }) => [styles.historyCardContent, pressed && { opacity: 0.7 }]}
@@ -345,13 +358,14 @@ function HistoryCard({
             <MaterialCommunityIcons name="gamepad-variant" size={20} color={themeColors.accent} />
             <View style={{ marginLeft: 12, flex: 1 }}>
               <Text style={[styles.historyTime, { color: themeColors.textSecondary }]}>{timeStr}</Text>
+              <Text style={[styles.historyUploader, { color: themeColors.textMuted }]}>{item.uploaderName}</Text>
             </View>
           </View>
           <View style={styles.historyRight}>
-            {item.result.achievement ? (
+            {item.achievement ? (
               <Ionicons name="trophy" size={16} color="#FFD700" style={{ marginRight: 6 }} />
             ) : null}
-            <Text style={[styles.historyScore, { color: themeColors.accent }]}>{item.result.teamScore.toLocaleString()}</Text>
+            <Text style={[styles.historyScore, { color: themeColors.accent }]}>{item.teamScore.toLocaleString()}</Text>
             <Feather name="chevron-right" size={16} color={themeColors.textMuted} />
           </View>
         </Pressable>
@@ -363,11 +377,10 @@ function HistoryCard({
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { colors, mode, setMode, isDark } = useTheme();
+  const queryClient = useQueryClient();
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ParsedResult | null>(null);
-  const [history, setHistory] = useState<HistoryItem[]>([]);
-  const historyRef = useRef<HistoryItem[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [sortOption, setSortOption] = useState<SortOption>("upload_recent");
@@ -377,104 +390,134 @@ export default function HomeScreen() {
   const [editingDate, setEditingDate] = useState(false);
   const [editDate, setEditDate] = useState(new Date());
   const [currentHistoryId, setCurrentHistoryId] = useState<string | null>(null);
+  const [currentUploaderName, setCurrentUploaderName] = useState<string | null>(null);
   const [playerNames, setPlayerNames] = useState<Record<string, string>>({});
   const [duplicateWarning, setDuplicateWarning] = useState(false);
   const pendingUpload = useRef<{ uri: string; photoDate: string; fileName?: string } | null>(null);
 
+  const [displayName, setDisplayName] = useState<string | null>(null);
+  const [displayNameLoaded, setDisplayNameLoaded] = useState(false);
+  const [displayNameInput, setDisplayNameInput] = useState("");
+  const [editingDisplayName, setEditingDisplayName] = useState(false);
+  const [settingsNameInput, setSettingsNameInput] = useState("");
+  const displayNameRef = useRef<string | null>(null);
+
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
 
+  const { data: scores = [], isLoading: scoresLoading } = useQuery<Score[]>({
+    queryKey: ['/api/scores'],
+  });
+
+  const scoresRef = useRef<Score[]>([]);
+
   useEffect(() => {
-    loadHistory();
+    scoresRef.current = scores;
+  }, [scores]);
+
+  useEffect(() => {
+    displayNameRef.current = displayName;
+  }, [displayName]);
+
+  useEffect(() => {
+    AsyncStorage.getItem("display_name").then((name) => {
+      if (name) {
+        setDisplayName(name);
+        displayNameRef.current = name;
+      }
+      setDisplayNameLoaded(true);
+    }).catch(() => setDisplayNameLoaded(true));
   }, []);
 
-  const loadHistory = async () => {
-    try {
-      const stored = await AsyncStorage.getItem("score_history");
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        setHistory(parsed);
-        historyRef.current = parsed;
-      }
-      const savedSort = await AsyncStorage.getItem("sort_option");
-      if (savedSort && savedSort in SORT_LABELS) {
-        setSortOption(savedSort as SortOption);
-      }
-      const savedDateFormat = await AsyncStorage.getItem("date_format");
-      if (savedDateFormat && savedDateFormat in DATE_FORMAT_LABELS) {
-        setDateFormat(savedDateFormat as DateFormatKey);
-      }
-    } catch {}
-  };
-
-  const persistHistory = async (updated: HistoryItem[]) => {
-    setHistory(updated);
-    historyRef.current = updated;
-    await AsyncStorage.setItem("score_history", JSON.stringify(updated));
-  };
-
-  const persistImage = async (uri: string, itemId: string): Promise<string> => {
-    if (Platform.OS === "web") {
+  useEffect(() => {
+    const loadPreferences = async () => {
       try {
-        const response = await globalThis.fetch(uri);
-        const blob = await response.blob();
-        return await new Promise<string>((resolve) => {
-          const reader = new FileReader();
-          reader.onloadend = () => resolve(reader.result as string);
-          reader.readAsDataURL(blob);
-        });
-      } catch {
-        return uri;
-      }
-    }
-    try {
-      const imagesDir = new FileSystem.Directory(FileSystem.Paths.document, "scoresnap_images");
-      if (!imagesDir.exists) {
-        imagesDir.create({ intermediates: true });
-      }
-      const ext = uri.split(".").pop()?.split("?")[0] || "jpg";
-      const sourceFile = new FileSystem.File(uri);
-      const destFile = new FileSystem.File(imagesDir, `${itemId}.${ext}`);
-      sourceFile.copy(destFile);
-      return destFile.uri;
-    } catch {
-      return uri;
-    }
+        const savedSort = await AsyncStorage.getItem("sort_option");
+        if (savedSort && savedSort in SORT_LABELS) {
+          setSortOption(savedSort as SortOption);
+        }
+        const savedDateFormat = await AsyncStorage.getItem("date_format");
+        if (savedDateFormat && savedDateFormat in DATE_FORMAT_LABELS) {
+          setDateFormat(savedDateFormat as DateFormatKey);
+        }
+      } catch {}
+    };
+    loadPreferences();
+  }, []);
+
+  const saveDisplayName = async (name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    setDisplayName(trimmed);
+    displayNameRef.current = trimmed;
+    await AsyncStorage.setItem("display_name", trimmed);
   };
 
-  const saveToHistory = async (parsed: ParsedResult, uri?: string, dateStr?: string, fileName?: string) => {
+  const saveToDatabase = async (parsed: ParsedResult, uri?: string, dateStr?: string) => {
     try {
-      const itemId = Date.now().toString() + Math.random().toString(36).substr(2, 9);
-      let savedUri = uri;
+      let imageBase64: string | null = null;
+      let imageMimeType: string | null = null;
+
       if (uri) {
-        savedUri = await persistImage(uri, itemId);
+        if (Platform.OS === "web") {
+          try {
+            const response = await globalThis.fetch(uri);
+            const blob = await response.blob();
+            const dataUrl = await new Promise<string>((resolve) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve(reader.result as string);
+              reader.readAsDataURL(blob);
+            });
+            const match = dataUrl.match(/^data:(.+?);base64,(.+)$/s);
+            if (match) {
+              imageMimeType = match[1];
+              imageBase64 = match[2];
+            }
+          } catch {}
+        } else {
+          try {
+            const ExpoFS = require("expo-file-system");
+            const base64 = await ExpoFS.readAsStringAsync(uri, {
+              encoding: ExpoFS.EncodingType.Base64,
+            });
+            const ext = uri.split(".").pop()?.split("?")[0]?.toLowerCase() || "jpg";
+            imageMimeType = ext === "png" ? "image/png" : "image/jpeg";
+            imageBase64 = base64;
+          } catch {}
+        }
       }
-      const newItem: HistoryItem = {
-        id: itemId,
-        result: parsed,
-        timestamp: Date.now(),
-        imageUri: savedUri,
+
+      const res = await apiRequest("POST", "/api/scores", {
+        uploaderName: displayNameRef.current || "Anonymous",
+        teamScore: parsed.teamScore,
+        achievement: parsed.achievement || null,
+        gameName: parsed.gameName,
+        objectiveScores: parsed.objectiveScores || null,
+        players: parsed.players,
+        playerNames: null,
+        imageBase64,
+        imageMimeType,
         playedDate: dateStr || new Date().toISOString(),
-        ...(fileName ? { fileName } : {}),
-      };
-      const updated = [newItem, ...historyRef.current].slice(0, 50);
-      setCurrentHistoryId(itemId);
+      });
+
+      const newScore = await res.json();
+      setCurrentHistoryId(newScore.id);
+      setCurrentUploaderName(newScore.uploaderName);
       setPlayerNames({});
-      setImageUri(savedUri || null);
-      await persistHistory(updated);
-    } catch {}
+      queryClient.invalidateQueries({ queryKey: ['/api/scores'] });
+    } catch (err) {
+      console.error("Save error:", err);
+    }
   };
 
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   const confirmDeleteItem = async () => {
     if (!pendingDeleteId) return;
-    const deletedItem = historyRef.current.find((h) => h.id === pendingDeleteId);
-    if (deletedItem?.imageUri && Platform.OS !== "web" && deletedItem.imageUri.includes("scoresnap_images")) {
-      try { const f = new FileSystem.File(deletedItem.imageUri); if (f.exists) f.delete(); } catch {}
-    }
-    const updated = historyRef.current.filter((h) => h.id !== pendingDeleteId);
-    await persistHistory(updated);
+    try {
+      await apiRequest("DELETE", `/api/scores/${pendingDeleteId}`);
+      queryClient.invalidateQueries({ queryKey: ['/api/scores'] });
+    } catch {}
     if (currentHistoryId === pendingDeleteId) {
       resetState();
     }
@@ -483,12 +526,6 @@ export default function HomeScreen() {
 
   const updatePlayedDate = async (newDate: string) => {
     setPlayedDate(newDate);
-    if (currentHistoryId) {
-      const updated = historyRef.current.map((h) =>
-        h.id === currentHistoryId ? { ...h, playedDate: newDate } : h
-      );
-      await persistHistory(updated);
-    }
   };
 
   const updatePlayerName = async (color: string, name: string) => {
@@ -496,10 +533,12 @@ export default function HomeScreen() {
     if (!name) delete updated[color];
     setPlayerNames(updated);
     if (currentHistoryId) {
-      const updatedHistory = historyRef.current.map((h) =>
-        h.id === currentHistoryId ? { ...h, playerNames: Object.keys(updated).length > 0 ? updated : undefined } : h
-      );
-      await persistHistory(updatedHistory);
+      try {
+        await apiRequest("PATCH", `/api/scores/${currentHistoryId}/player-names`, {
+          playerNames: Object.keys(updated).length > 0 ? updated : null,
+        });
+        queryClient.invalidateQueries({ queryKey: ['/api/scores'] });
+      } catch {}
     }
   };
 
@@ -569,8 +608,7 @@ export default function HomeScreen() {
       }
       const pickedFileName = asset.fileName || asset.uri.split("/").pop() || undefined;
 
-      const isDuplicate = historyRef.current.some((item) => {
-        if (pickedFileName && item.fileName && pickedFileName === item.fileName) return true;
+      const isDuplicate = scoresRef.current.some((item) => {
         if (!item.playedDate) return false;
         const existingTime = new Date(item.playedDate).getTime();
         const newTime = new Date(photoDate).getTime();
@@ -651,7 +689,8 @@ export default function HomeScreen() {
           setPlayedDate(effectiveDate);
         }
         setResult(data);
-        await saveToHistory(data, uri, effectiveDate, fileName);
+        setCurrentUploaderName(displayNameRef.current || "Anonymous");
+        await saveToDatabase(data, uri, effectiveDate);
       }
 
       if (Platform.OS !== "web") {
@@ -676,14 +715,25 @@ export default function HomeScreen() {
     setShowHistory(false);
     setPlayedDate(null);
     setCurrentHistoryId(null);
+    setCurrentUploaderName(null);
     setPlayerNames({});
   };
 
-  const viewHistoryItem = (item: HistoryItem) => {
-    setResult(item.result);
-    setImageUri(item.imageUri || null);
-    setPlayedDate(item.playedDate || new Date(item.timestamp).toISOString());
+  const viewHistoryItem = (item: Score) => {
+    setResult({
+      teamScore: item.teamScore,
+      achievement: item.achievement,
+      gameName: item.gameName,
+      objectiveScores: item.objectiveScores || undefined,
+      players: item.players as PlayerScore[],
+    });
+    const imgUri = item.imageBase64 && item.imageMimeType
+      ? `data:${item.imageMimeType};base64,${item.imageBase64}`
+      : null;
+    setImageUri(imgUri);
+    setPlayedDate(item.playedDate || item.createdAt);
     setCurrentHistoryId(item.id);
+    setCurrentUploaderName(item.uploaderName);
     setPlayerNames(item.playerNames || {});
     setShowHistory(false);
   };
@@ -805,6 +855,64 @@ export default function HomeScreen() {
     } catch {}
   };
 
+  if (!displayNameLoaded) {
+    return (
+      <View style={[styles.container, { backgroundColor: colors.background, alignItems: "center", justifyContent: "center" }]}>
+        <ActivityIndicator size="large" color={colors.accent} />
+      </View>
+    );
+  }
+
+  if (!displayName) {
+    return (
+      <View style={[styles.container, { paddingTop: insets.top + webTopInset, backgroundColor: colors.background }]}>
+        <View style={styles.displayNameContainer}>
+          <View style={[styles.iconCircle, { backgroundColor: colors.accentDim, borderColor: colors.accentBorder }]}>
+            <Ionicons name="person-outline" size={44} color={colors.accent} />
+          </View>
+          <Text style={[styles.displayNameTitle, { color: colors.text }]}>What's your name?</Text>
+          <Text style={[styles.displayNameSubtitle, { color: colors.textSecondary }]}>
+            This will be shown with your uploaded scores
+          </Text>
+          <TextInput
+            style={[styles.displayNameInput, { color: colors.text, backgroundColor: colors.surface, borderColor: colors.cardBorder }]}
+            value={displayNameInput}
+            onChangeText={setDisplayNameInput}
+            placeholder="Enter your display name"
+            placeholderTextColor={colors.textMuted}
+            autoCapitalize="words"
+            autoFocus
+            returnKeyType="done"
+            onSubmitEditing={() => {
+              if (displayNameInput.trim()) {
+                saveDisplayName(displayNameInput.trim());
+              }
+            }}
+          />
+          <Pressable
+            onPress={() => {
+              if (displayNameInput.trim()) {
+                saveDisplayName(displayNameInput.trim());
+              }
+            }}
+            style={({ pressed }) => [
+              styles.displayNameButton,
+              pressed && { opacity: 0.85, transform: [{ scale: 0.97 }] },
+            ]}
+          >
+            <LinearGradient
+              colors={[colors.accent, isDark ? "#00C4B0" : "#009E8E"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={StyleSheet.absoluteFill}
+            />
+            <Text style={[styles.displayNameButtonText, { color: colors.background }]}>Let's Go</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
+
   if (showSettings) {
     return (
       <View style={[styles.container, { paddingTop: insets.top + webTopInset, backgroundColor: colors.background }]}>
@@ -826,6 +934,48 @@ export default function HomeScreen() {
           ]}
           showsVerticalScrollIndicator={false}
         >
+          <View style={styles.settingsSection}>
+            <Text style={[styles.settingsSectionTitle, { color: colors.text }]}>Display Name</Text>
+            <Text style={[styles.settingsSectionSubtitle, { color: colors.textMuted }]}>Your name shown with uploaded scores</Text>
+            <View style={[styles.settingsOptionsList, { backgroundColor: colors.surface, borderColor: colors.cardBorder }]}>
+              <View style={[styles.settingsOptionRow, { borderBottomColor: colors.cardBorder }]}>
+                {editingDisplayName ? (
+                  <TextInput
+                    style={[styles.settingsNameInput, { color: colors.text, borderBottomColor: colors.accent }]}
+                    value={settingsNameInput}
+                    onChangeText={setSettingsNameInput}
+                    onBlur={() => {
+                      if (settingsNameInput.trim()) {
+                        saveDisplayName(settingsNameInput.trim());
+                      }
+                      setEditingDisplayName(false);
+                    }}
+                    onSubmitEditing={() => {
+                      if (settingsNameInput.trim()) {
+                        saveDisplayName(settingsNameInput.trim());
+                      }
+                      setEditingDisplayName(false);
+                    }}
+                    autoFocus
+                    returnKeyType="done"
+                    autoCapitalize="words"
+                  />
+                ) : (
+                  <Pressable
+                    onPress={() => {
+                      setSettingsNameInput(displayName || "");
+                      setEditingDisplayName(true);
+                    }}
+                    style={{ flexDirection: "row", alignItems: "center", flex: 1, justifyContent: "space-between" }}
+                  >
+                    <Text style={[styles.settingsOptionText, { color: colors.text }]}>{displayName}</Text>
+                    <Feather name="edit-2" size={16} color={colors.accent} />
+                  </Pressable>
+                )}
+              </View>
+            </View>
+          </View>
+
           <View style={styles.settingsSection}>
             <Text style={[styles.settingsSectionTitle, { color: colors.text }]}>Appearance</Text>
             <Text style={[styles.settingsSectionSubtitle, { color: colors.textMuted }]}>Choose your preferred theme</Text>
@@ -959,7 +1109,7 @@ export default function HomeScreen() {
   }
 
   if (showHistory) {
-    const sortedHistory = sortHistory(history, sortOption);
+    const sortedScores = sortScores(scores, sortOption);
     return (
       <View style={[styles.container, { paddingTop: insets.top + webTopInset, backgroundColor: colors.background }]}>
         <View style={styles.header}>
@@ -985,7 +1135,7 @@ export default function HomeScreen() {
           ]}
           showsVerticalScrollIndicator={false}
         >
-          {history.length === 0 ? (
+          {scores.length === 0 ? (
             <View style={styles.emptyState}>
               <Ionicons name="time-outline" size={48} color={colors.textMuted} />
               <Text style={[styles.emptyText, { color: colors.textSecondary }]}>No scans yet</Text>
@@ -994,7 +1144,7 @@ export default function HomeScreen() {
               </Text>
             </View>
           ) : (
-            sortedHistory.map((item) => (
+            sortedScores.map((item) => (
               <HistoryCard
                 key={item.id}
                 item={item}
@@ -1002,6 +1152,7 @@ export default function HomeScreen() {
                 onDelete={() => setPendingDeleteId(item.id)}
                 dateFormat={dateFormat}
                 themeColors={colors}
+                canDelete={item.uploaderName === displayName}
               />
             ))
           )}
@@ -1145,6 +1296,18 @@ export default function HomeScreen() {
                   >
                     <Feather name="edit-2" size={14} color={colors.accent} />
                   </Pressable>
+                </Animated.View>
+              )}
+
+              {currentUploaderName && (
+                <Animated.View
+                  entering={Platform.OS !== "web" ? FadeInUp.delay(75).springify() : undefined}
+                  style={[styles.uploaderCard, { backgroundColor: colors.surface }]}
+                >
+                  <Ionicons name="person-outline" size={16} color={colors.textSecondary} />
+                  <Text style={[styles.uploaderText, { color: colors.textSecondary }]}>
+                    Uploaded by {currentUploaderName}
+                  </Text>
                 </Animated.View>
               )}
 
@@ -1408,7 +1571,7 @@ export default function HomeScreen() {
               </Pressable>
             </View>
 
-            {history.length > 0 && (
+            {scores.length > 0 && (
               <View style={styles.recentSection}>
                 <View style={styles.recentHeader}>
                   <Text style={[styles.sectionTitle, { color: colors.text }]}>Recent Scans</Text>
@@ -1419,7 +1582,7 @@ export default function HomeScreen() {
                     <Text style={[styles.seeAllText, { color: colors.accent }]}>See All</Text>
                   </Pressable>
                 </View>
-                {history.slice(0, 3).map((item) => (
+                {scores.slice(0, 3).map((item) => (
                   <HistoryCard
                     key={item.id}
                     item={item}
@@ -1427,6 +1590,7 @@ export default function HomeScreen() {
                     onDelete={() => setPendingDeleteId(item.id)}
                     dateFormat={dateFormat}
                     themeColors={colors}
+                    canDelete={item.uploaderName === displayName}
                   />
                 ))}
               </View>
@@ -1858,6 +2022,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 2,
   },
+  historyUploader: {
+    fontFamily: "DMSans_400Regular",
+    fontSize: 11,
+    marginTop: 1,
+  },
   historyRight: {
     flexDirection: "row",
     alignItems: "center",
@@ -1901,6 +2070,18 @@ const styles = StyleSheet.create({
   },
   editDateBtn: {
     padding: 4,
+  },
+  uploaderCard: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    gap: 8,
+  },
+  uploaderText: {
+    fontFamily: "DMSans_400Regular",
+    fontSize: 13,
   },
   modalOverlay: {
     flex: 1,
@@ -2071,6 +2252,14 @@ const styles = StyleSheet.create({
     fontFamily: "DMSans_400Regular",
     fontSize: 15,
   },
+  settingsNameInput: {
+    fontFamily: "DMSans_500Medium",
+    fontSize: 15,
+    flex: 1,
+    borderBottomWidth: 1,
+    paddingVertical: 2,
+    paddingHorizontal: 0,
+  },
   settingsExportRow: {
     flexDirection: "row" as const,
     alignItems: "center" as const,
@@ -2092,5 +2281,47 @@ const styles = StyleSheet.create({
   comingSoonText: {
     fontFamily: "DMSans_500Medium",
     fontSize: 11,
+  },
+  displayNameContainer: {
+    flex: 1,
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
+    paddingHorizontal: 40,
+  },
+  displayNameTitle: {
+    fontFamily: "DMSans_700Bold",
+    fontSize: 28,
+    textAlign: "center" as const,
+    marginBottom: 12,
+  },
+  displayNameSubtitle: {
+    fontFamily: "DMSans_400Regular",
+    fontSize: 15,
+    textAlign: "center" as const,
+    lineHeight: 22,
+    marginBottom: 32,
+  },
+  displayNameInput: {
+    fontFamily: "DMSans_500Medium",
+    fontSize: 16,
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: 1,
+    width: "100%" as const,
+    marginBottom: 20,
+    textAlign: "center" as const,
+  },
+  displayNameButton: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
+    height: 56,
+    borderRadius: 16,
+    width: "100%" as const,
+    overflow: "hidden" as const,
+  },
+  displayNameButtonText: {
+    fontFamily: "DMSans_600SemiBold",
+    fontSize: 16,
   },
 });
