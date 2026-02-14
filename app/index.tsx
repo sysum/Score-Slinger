@@ -63,6 +63,7 @@ interface HistoryItem {
   timestamp: number;
   imageUri?: string;
   playedDate?: string;
+  playerNames?: Record<string, string>;
 }
 
 const PLAYER_COLOR_MAP: Record<string, string> = {
@@ -81,9 +82,21 @@ const PLAYER_COLOR_LABELS: Record<string, string> = {
 
 const PLAYER_COLOR_ORDER = ["blue", "red", "yellow", "purple"];
 
-function PlayerCard({ player, index }: { player: PlayerScore; index: number }) {
+function PlayerCard({
+  player,
+  index,
+  customName,
+  onNameChange,
+}: {
+  player: PlayerScore;
+  index: number;
+  customName?: string;
+  onNameChange?: (name: string) => void;
+}) {
   const color = PLAYER_COLOR_MAP[player.color] || Colors.accent;
   const progress = useSharedValue(0);
+  const [editing, setEditing] = useState(false);
+  const [nameInput, setNameInput] = useState(customName || "");
 
   useEffect(() => {
     progress.value = withSpring(1, { damping: 15, stiffness: 90 });
@@ -93,6 +106,13 @@ function PlayerCard({ player, index }: { player: PlayerScore; index: number }) {
     width: `${interpolate(progress.value, [0, 1], [0, 100])}%`,
   }));
 
+  const displayName = customName || player.name;
+
+  const handleSaveName = () => {
+    setEditing(false);
+    if (onNameChange) onNameChange(nameInput.trim());
+  };
+
   return (
     <Animated.View
       entering={Platform.OS !== "web" ? FadeInDown.delay(200 + index * 100).springify() : undefined}
@@ -100,11 +120,37 @@ function PlayerCard({ player, index }: { player: PlayerScore; index: number }) {
     >
       <View style={styles.playerHeader}>
         <View style={[styles.colorDot, { backgroundColor: color }]} />
-        <Text style={styles.playerName} numberOfLines={1}>
-          {player.name}
-        </Text>
+        {editing ? (
+          <TextInput
+            style={[styles.playerNameInput, { color }]}
+            value={nameInput}
+            onChangeText={setNameInput}
+            onBlur={handleSaveName}
+            onSubmitEditing={handleSaveName}
+            autoFocus
+            placeholder={player.name}
+            placeholderTextColor={Colors.textMuted}
+            returnKeyType="done"
+          />
+        ) : (
+          <Pressable
+            onPress={() => {
+              setNameInput(customName || "");
+              setEditing(true);
+            }}
+            style={styles.playerNameBtn}
+          >
+            <Text style={[styles.playerName, customName ? {} : { color: Colors.textSecondary }]} numberOfLines={1}>
+              {displayName}
+            </Text>
+            <Feather name="edit-2" size={11} color={Colors.textMuted} style={{ marginLeft: 4 }} />
+          </Pressable>
+        )}
         <Text style={[styles.playerScore, { color }]}>{player.score.toLocaleString()}</Text>
       </View>
+      {customName ? (
+        <Text style={styles.playerColorLabel}>{player.name}</Text>
+      ) : null}
       <View style={styles.playerBarBg}>
         <Animated.View style={[styles.playerBar, { backgroundColor: color }, barStyle]} />
       </View>
@@ -227,6 +273,7 @@ export default function HomeScreen() {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [currentHistoryId, setCurrentHistoryId] = useState<string | null>(null);
+  const [playerNames, setPlayerNames] = useState<Record<string, string>>({});
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
@@ -257,6 +304,7 @@ export default function HomeScreen() {
       const updated = [newItem, ...history].slice(0, 50);
       setHistory(updated);
       setCurrentHistoryId(itemId);
+      setPlayerNames({});
       await AsyncStorage.setItem("score_history", JSON.stringify(updated));
     } catch {}
   };
@@ -282,6 +330,19 @@ export default function HomeScreen() {
       );
       setHistory(updated);
       await AsyncStorage.setItem("score_history", JSON.stringify(updated));
+    }
+  };
+
+  const updatePlayerName = async (color: string, name: string) => {
+    const updated = { ...playerNames, [color]: name || undefined } as Record<string, string>;
+    if (!name) delete updated[color];
+    setPlayerNames(updated);
+    if (currentHistoryId) {
+      const updatedHistory = history.map((h) =>
+        h.id === currentHistoryId ? { ...h, playerNames: Object.keys(updated).length > 0 ? updated : undefined } : h
+      );
+      setHistory(updatedHistory);
+      await AsyncStorage.setItem("score_history", JSON.stringify(updatedHistory));
     }
   };
 
@@ -418,6 +479,7 @@ export default function HomeScreen() {
     setShowHistory(false);
     setPlayedDate(null);
     setCurrentHistoryId(null);
+    setPlayerNames({});
   };
 
   const viewHistoryItem = (item: HistoryItem) => {
@@ -425,6 +487,7 @@ export default function HomeScreen() {
     setImageUri(item.imageUri || null);
     setPlayedDate(item.playedDate || new Date(item.timestamp).toISOString());
     setCurrentHistoryId(item.id);
+    setPlayerNames(item.playerNames || {});
     setShowHistory(false);
   };
 
@@ -681,7 +744,13 @@ export default function HomeScreen() {
                 {[...result.players]
                   .sort((a, b) => PLAYER_COLOR_ORDER.indexOf(a.color) - PLAYER_COLOR_ORDER.indexOf(b.color))
                   .map((player, i) => (
-                    <PlayerCard key={`${player.name}-${i}`} player={player} index={i} />
+                    <PlayerCard
+                      key={`${player.name}-${i}`}
+                      player={player}
+                      index={i}
+                      customName={playerNames[player.color]}
+                      onNameChange={(name) => updatePlayerName(player.color, name)}
+                    />
                   ))}
               </View>
             </>
@@ -1170,6 +1239,27 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: Colors.text,
     flex: 1,
+  },
+  playerNameBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+  },
+  playerNameInput: {
+    fontFamily: "DMSans_500Medium",
+    fontSize: 15,
+    flex: 1,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.accent,
+    paddingVertical: 2,
+    paddingHorizontal: 0,
+  },
+  playerColorLabel: {
+    fontFamily: "DMSans_400Regular",
+    fontSize: 11,
+    color: Colors.textMuted,
+    marginLeft: 20,
+    marginTop: -4,
   },
   playerScore: {
     fontFamily: "DMSans_700Bold",
