@@ -30,8 +30,7 @@ export const scores = pgTable("scores", {
     color: string;
   }>>().notNull(),
   playerNames: jsonb("player_names").$type<Record<string, string>>(),
-  imageBase64: text("image_base64"),
-  imageMimeType: text("image_mime_type"),
+  imagePath: text("image_path"),
   playedDate: text("played_date"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

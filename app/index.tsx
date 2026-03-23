@@ -31,6 +31,7 @@ import Animated, {
   interpolate,
 } from "react-native-reanimated";
 import { getApiUrl, apiRequest } from "@/lib/query-client";
+import { supabase } from "@/lib/supabase";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetch } from "expo/fetch";
 import DateTimePicker from "@react-native-community/datetimepicker";
@@ -73,8 +74,7 @@ interface Score {
   } | null;
   players: Array<{ name: string; score: number; color: string }>;
   playerNames: Record<string, string> | null;
-  imageBase64: string | null;
-  imageMimeType: string | null;
+  imagePath: string | null;
   playedDate: string | null;
   createdAt: string;
 }
@@ -453,40 +453,8 @@ export default function HomeScreen() {
     await AsyncStorage.setItem("display_name", trimmed);
   };
 
-  const saveToDatabase = async (parsed: ParsedResult, uri?: string, dateStr?: string) => {
+  const saveToDatabase = async (parsed: ParsedResult, imagePath?: string | null, dateStr?: string) => {
     try {
-      let imageBase64: string | null = null;
-      let imageMimeType: string | null = null;
-
-      if (uri) {
-        if (Platform.OS === "web") {
-          try {
-            const response = await globalThis.fetch(uri);
-            const blob = await response.blob();
-            const dataUrl = await new Promise<string>((resolve) => {
-              const reader = new FileReader();
-              reader.onloadend = () => resolve(reader.result as string);
-              reader.readAsDataURL(blob);
-            });
-            const match = dataUrl.match(/^data:(.+?);base64,(.+)$/s);
-            if (match) {
-              imageMimeType = match[1];
-              imageBase64 = match[2];
-            }
-          } catch {}
-        } else {
-          try {
-            const ExpoFS = require("expo-file-system");
-            const base64 = await ExpoFS.readAsStringAsync(uri, {
-              encoding: ExpoFS.EncodingType.Base64,
-            });
-            const ext = uri.split(".").pop()?.split("?")[0]?.toLowerCase() || "jpg";
-            imageMimeType = ext === "png" ? "image/png" : "image/jpeg";
-            imageBase64 = base64;
-          } catch {}
-        }
-      }
-
       const res = await apiRequest("POST", "/api/scores", {
         uploaderName: displayNameRef.current || "Anonymous",
         teamScore: parsed.teamScore,
@@ -495,8 +463,7 @@ export default function HomeScreen() {
         objectiveScores: parsed.objectiveScores || null,
         players: parsed.players,
         playerNames: null,
-        imageBase64,
-        imageMimeType,
+        imagePath: imagePath || null,
         playedDate: dateStr || new Date().toISOString(),
       });
 
@@ -655,30 +622,31 @@ export default function HomeScreen() {
   const analyzeImage = async (uri: string, dateStr?: string, fileName?: string) => {
     setLoading(true);
     try {
-      const baseUrl = getApiUrl();
-      const url = new URL("/api/parse-score", baseUrl);
+      // Upload image to private Supabase Storage
+      const ext = uri.split(".").pop()?.split("?")[0]?.toLowerCase() || "jpg";
+      const contentType = ext === "png" ? "image/png" : "image/jpeg";
+      const storagePath = `scores/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
 
-      const formData = new FormData();
-
+      let uploadError: Error | null = null;
       if (Platform.OS === "web") {
         const response = await globalThis.fetch(uri);
         const blob = await response.blob();
-        formData.append("image", blob, "screenshot.jpg");
+        const { error } = await supabase.storage.from("scores").upload(storagePath, blob, { contentType });
+        if (error) uploadError = error;
       } else {
-        const { File: ExpoFile } = require("expo-file-system");
-        const file = new ExpoFile(uri);
-        formData.append("image", file as any);
+        const ExpoFS = require("expo-file-system");
+        const base64 = await ExpoFS.readAsStringAsync(uri, { encoding: ExpoFS.EncodingType.Base64 });
+        const binaryStr = atob(base64);
+        const bytes = new Uint8Array(binaryStr.length);
+        for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+        const { error } = await supabase.storage.from("scores").upload(storagePath, bytes, { contentType });
+        if (error) uploadError = error;
       }
 
-      const res = await fetch(url.toString(), {
-        method: "POST",
-        body: formData,
-      });
+      if (uploadError) throw uploadError;
 
-      if (!res.ok) {
-        throw new Error("Server error");
-      }
-
+      // Send storage path to server for AI parsing
+      const res = await apiRequest("POST", "/api/parse-score", { imagePath: storagePath });
       const data = await res.json();
 
       if (data.error) {
@@ -690,7 +658,7 @@ export default function HomeScreen() {
         }
         setResult(data);
         setCurrentUploaderName(displayNameRef.current || "Anonymous");
-        await saveToDatabase(data, uri, effectiveDate);
+        await saveToDatabase(data, storagePath, effectiveDate);
       }
 
       if (Platform.OS !== "web") {
@@ -719,7 +687,7 @@ export default function HomeScreen() {
     setPlayerNames({});
   };
 
-  const viewHistoryItem = (item: Score) => {
+  const viewHistoryItem = async (item: Score) => {
     setResult({
       teamScore: item.teamScore,
       achievement: item.achievement,
@@ -727,9 +695,15 @@ export default function HomeScreen() {
       objectiveScores: item.objectiveScores || undefined,
       players: item.players as PlayerScore[],
     });
-    const imgUri = item.imageBase64 && item.imageMimeType
-      ? `data:${item.imageMimeType};base64,${item.imageBase64}`
-      : null;
+
+    let imgUri: string | null = null;
+    if (item.imagePath) {
+      try {
+        const res = await apiRequest("GET", `/api/scores/${item.id}/image-url`);
+        const data = await res.json();
+        imgUri = data.url || null;
+      } catch {}
+    }
     setImageUri(imgUri);
     setPlayedDate(item.playedDate || item.createdAt);
     setCurrentHistoryId(item.id);

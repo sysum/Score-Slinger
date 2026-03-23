@@ -3,6 +3,7 @@ import { cors } from "hono/cors";
 import OpenAI from "openai";
 import exifParser from "exif-parser";
 import { db } from "./db";
+import { supabaseAdmin } from "./supabase";
 import { scores } from "../shared/schema";
 import { eq, desc } from "drizzle-orm";
 
@@ -33,16 +34,25 @@ app.use(
 
 app.post("/api/parse-score", async (c) => {
   try {
-    const formData = await c.req.formData();
-    const file = formData.get("image") as File | null;
+    const { imagePath } = await c.req.json();
 
-    if (!file) {
-      return c.json({ error: "No image provided" }, 400);
+    if (!imagePath) {
+      return c.json({ error: "No imagePath provided" }, 400);
     }
 
-    const buffer = Buffer.from(await file.arrayBuffer());
+    const { data: fileData, error: downloadError } = await supabaseAdmin.storage
+      .from("scores")
+      .download(imagePath);
+
+    if (downloadError || !fileData) {
+      console.error("Storage download error:", downloadError);
+      return c.json({ error: "Could not retrieve image from storage" }, 400);
+    }
+
+    const buffer = Buffer.from(await fileData.arrayBuffer());
     const base64Image = buffer.toString("base64");
-    const mimeType = file.type || "image/jpeg";
+    const ext = imagePath.split(".").pop()?.toLowerCase() || "jpg";
+    const mimeType = ext === "png" ? "image/png" : "image/jpeg";
 
     let photoTakenDate: string | null = null;
     try {
@@ -175,8 +185,7 @@ app.post("/api/scores", async (c) => {
       objectiveScores,
       players,
       playerNames,
-      imageBase64,
-      imageMimeType,
+      imagePath,
       playedDate,
     } = await c.req.json();
 
@@ -194,8 +203,7 @@ app.post("/api/scores", async (c) => {
         objectiveScores: objectiveScores || null,
         players,
         playerNames: playerNames || null,
-        imageBase64: imageBase64 || null,
-        imageMimeType: imageMimeType || null,
+        imagePath: imagePath || null,
         playedDate: playedDate || null,
       })
       .returning();
@@ -225,6 +233,34 @@ app.patch("/api/scores/:id/player-names", async (c) => {
   } catch (error: unknown) {
     console.error("Error updating player names:", error);
     return c.json({ error: "Failed to update player names" }, 500);
+  }
+});
+
+app.get("/api/scores/:id/image-url", async (c) => {
+  try {
+    const id = c.req.param("id");
+    const [score] = await db
+      .select({ imagePath: scores.imagePath })
+      .from(scores)
+      .where(eq(scores.id, id));
+
+    if (!score?.imagePath) {
+      return c.json({ url: null });
+    }
+
+    const { data, error } = await supabaseAdmin.storage
+      .from("scores")
+      .createSignedUrl(score.imagePath, 60);
+
+    if (error) {
+      console.error("Signed URL error:", error);
+      return c.json({ url: null });
+    }
+
+    return c.json({ url: data.signedUrl });
+  } catch (error: unknown) {
+    console.error("Error generating image URL:", error);
+    return c.json({ url: null });
   }
 });
 
