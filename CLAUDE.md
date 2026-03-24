@@ -157,9 +157,31 @@ Set all non-`EXPO_PUBLIC_*` environment variables in the Vercel project dashboar
 
 ---
 
+## Auth Architecture (Step 3 — complete)
+
+- All API routes protected by `requireAuth` middleware in `server/app.ts`
+- Middleware verifies the Supabase JWT via `supabaseAdmin.auth.getUser(token)`
+- Client attaches `Authorization: Bearer <token>` on every request via `lib/query-client.ts`
+- Session persisted via AsyncStorage (native) / localStorage (web) — survives app restarts
+- Magic link flow: `signInWithOtp` → email → tap link → deep link → `exchangeCodeForSession` → session
+- Auth screen is in `components/AuthScreen.tsx` — designed with method switcher for future email/password
+- Sign out is in the Settings screen under the Account section
+- `scores.userId` (nullable text) stores `auth.users.id` on every new score insert
+- `users` table removed — Supabase Auth owns user management
+
+### Supabase dashboard config required for auth
+1. Auth → Settings → **Disable "Enable Sign Ups"** (invite-only)
+2. Auth → URL Configuration → add redirect URLs:
+   - `scoreslinger://**` (native deep link)
+   - `https://yourapp.vercel.app/**` (production web)
+   - `http://localhost:8081/**` (local web dev)
+3. Invite users via Supabase dashboard → Auth → Users → Invite user
+
+---
+
 ## Pending Work
 
-- [ ] Step 3: Add Supabase Auth (replace the unused `users` table with Supabase Auth users)
-- [ ] Lock down Supabase Storage RLS policies once auth is in place (currently allows anon uploads)
-- [ ] Lock down API routes once auth is in place (currently all endpoints are public)
+- [ ] Tighten Supabase Storage RLS: change anon upload policy to authenticated users only
 - [ ] Add `ALLOWED_ORIGINS` to Vercel env vars for production CORS
+- [ ] Future: add email/password auth method to `components/AuthScreen.tsx`
+- [ ] Future: per-user score filtering (RLS on `scores` table by `user_id`) if needed

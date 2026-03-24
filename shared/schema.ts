@@ -1,20 +1,13 @@
-import { sql } from "drizzle-orm";
 import { pgTable, text, varchar, integer, timestamp, jsonb } from "drizzle-orm/pg-core";
-import { createInsertSchema } from "drizzle-zod";
-import { z } from "zod";
 
-export const users = pgTable("users", {
-  id: varchar("id")
-    .primaryKey()
-    .default(sql`gen_random_uuid()`),
-  username: text("username").notNull().unique(),
-  password: text("password").notNull(),
-});
+// Note: user management is handled by Supabase Auth (auth.users).
+// The userId column below references auth.users(id) without a formal FK constraint.
 
 export const scores = pgTable("scores", {
   id: varchar("id")
     .primaryKey()
     .default(sql`gen_random_uuid()`),
+  userId: text("user_id"),
   uploaderName: text("uploader_name").notNull(),
   teamScore: integer("team_score").notNull(),
   achievement: text("achievement"),
@@ -35,11 +28,4 @@ export const scores = pgTable("scores", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-export const insertUserSchema = createInsertSchema(users).pick({
-  username: true,
-  password: true,
-});
-
-export type InsertUser = z.infer<typeof insertUserSchema>;
-export type User = typeof users.$inferSelect;
 export type Score = typeof scores.$inferSelect;

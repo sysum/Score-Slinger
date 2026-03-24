@@ -34,6 +34,9 @@ import { getApiUrl, apiRequest } from "@/lib/query-client";
 import { supabase } from "@/lib/supabase";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetch } from "expo/fetch";
+import * as Linking from "expo-linking";
+import type { Session } from "@supabase/supabase-js";
+import AuthScreen from "@/components/AuthScreen";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { type ThemeColors } from "@/constants/colors";
 import { useTheme, AppearanceMode } from "@/contexts/ThemeContext";
@@ -401,6 +404,33 @@ export default function HomeScreen() {
   const [editingDisplayName, setEditingDisplayName] = useState(false);
   const [settingsNameInput, setSettingsNameInput] = useState("");
   const displayNameRef = useRef<string | null>(null);
+
+  // undefined = loading, null = unauthenticated, Session = authenticated
+  const [session, setSession] = useState<Session | null | undefined>(undefined);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    // Handle magic link deep link on native (app already open)
+    const sub = Linking.addEventListener("url", async ({ url }) => {
+      if (url.includes("code=")) {
+        await supabase.auth.exchangeCodeForSession(url);
+      }
+    });
+    // Handle magic link deep link on native (app launched from link)
+    Linking.getInitialURL().then(async (url) => {
+      if (url?.includes("code=")) {
+        await supabase.auth.exchangeCodeForSession(url);
+      }
+    });
+    return () => sub.remove();
+  }, []);
 
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
@@ -829,6 +859,20 @@ export default function HomeScreen() {
     } catch {}
   };
 
+  // Auth loading state
+  if (session === undefined) {
+    return (
+      <View style={[styles.container, { backgroundColor: colors.background, alignItems: "center", justifyContent: "center" }]}>
+        <ActivityIndicator size="large" color={colors.accent} />
+      </View>
+    );
+  }
+
+  // Not authenticated
+  if (session === null) {
+    return <AuthScreen />;
+  }
+
   if (!displayNameLoaded) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background, alignItems: "center", justifyContent: "center" }]}>
@@ -1050,6 +1094,28 @@ export default function HomeScreen() {
                   )}
                 </Pressable>
               ))}
+            </View>
+          </View>
+
+          <View style={styles.settingsSection}>
+            <Text style={[styles.settingsSectionTitle, { color: colors.text }]}>Account</Text>
+            <Text style={[styles.settingsSectionSubtitle, { color: colors.textMuted }]}>
+              Signed in as {session.user.email}
+            </Text>
+            <View style={[styles.settingsOptionsList, { backgroundColor: colors.surface, borderColor: colors.cardBorder }]}>
+              <Pressable
+                onPress={() => supabase.auth.signOut()}
+                style={({ pressed }) => [
+                  styles.settingsOptionRow,
+                  { borderBottomColor: colors.cardBorder },
+                  pressed && { opacity: 0.6 },
+                ]}
+              >
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+                  <Ionicons name="log-out-outline" size={18} color={colors.danger} />
+                  <Text style={[styles.settingsOptionText, { color: colors.danger }]}>Sign Out</Text>
+                </View>
+              </Pressable>
             </View>
           </View>
 

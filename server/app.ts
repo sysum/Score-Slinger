@@ -1,5 +1,7 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { createMiddleware } from "hono/factory";
+import type { User } from "@supabase/supabase-js";
 import OpenAI from "openai";
 import exifParser from "exif-parser";
 import { db } from "./db";
@@ -9,7 +11,9 @@ import { eq, desc } from "drizzle-orm";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-const app = new Hono();
+type Variables = { user: User };
+
+const app = new Hono<{ Variables: Variables }>();
 
 app.use(
   "*",
@@ -31,6 +35,21 @@ app.use(
     credentials: true,
   }),
 );
+
+const requireAuth = createMiddleware<{ Variables: Variables }>(async (c, next) => {
+  const token = c.req.header("Authorization")?.replace("Bearer ", "");
+  if (!token) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+  const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
+  if (error || !user) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+  c.set("user", user);
+  await next();
+});
+
+app.use("/api/*", requireAuth);
 
 app.post("/api/parse-score", async (c) => {
   try {
@@ -193,9 +212,12 @@ app.post("/api/scores", async (c) => {
       return c.json({ error: "Missing required fields" }, 400);
     }
 
+    const user = c.get("user");
+
     const [newScore] = await db
       .insert(scores)
       .values({
+        userId: user.id,
         uploaderName,
         teamScore,
         achievement: achievement || null,
