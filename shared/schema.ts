@@ -1,31 +1,25 @@
-import { pgTable, text, varchar, integer, timestamp, jsonb } from "drizzle-orm/pg-core";
+// Shared types between client and server.
+// Schema is managed via the Supabase dashboard — no ORM or migration tool needed.
 
-// Note: user management is handled by Supabase Auth (auth.users).
-// The userId column below references auth.users(id) without a formal FK constraint.
-
-export const scores = pgTable("scores", {
-  id: varchar("id")
-    .primaryKey()
-    .default(sql`gen_random_uuid()`),
-  userId: text("user_id"),
-  uploaderName: text("uploader_name").notNull(),
-  teamScore: integer("team_score").notNull(),
-  achievement: text("achievement"),
-  gameName: text("game_name").notNull().default("Unknown"),
-  objectiveScores: jsonb("objective_scores").$type<{
+export type Score = {
+  id: string;
+  userId: string | null;
+  uploaderName: string;
+  teamScore: number;
+  achievement: string | null;
+  gameName: string;
+  objectiveScores: {
     fightGiantBot: number;
     rescueSpiderMan: number;
     destroyGiantBot: number;
-  }>(),
-  players: jsonb("players").$type<Array<{
+  } | null;
+  players: Array<{
     name: string;
     score: number;
     color: string;
-  }>>().notNull(),
-  playerNames: jsonb("player_names").$type<Record<string, string>>(),
-  imagePath: text("image_path"),
-  playedDate: text("played_date"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
-
-export type Score = typeof scores.$inferSelect;
+  }>;
+  playerNames: Record<string, string> | null;
+  imagePath: string | null;
+  playedDate: string | null;
+  createdAt: Date;
+};

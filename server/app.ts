@@ -4,10 +4,8 @@ import { createMiddleware } from "hono/factory";
 import type { User } from "@supabase/supabase-js";
 import OpenAI from "openai";
 import exifParser from "exif-parser";
-import { db } from "./db";
 import { supabaseAdmin } from "./supabase";
-import { scores } from "../shared/schema";
-import { eq, desc } from "drizzle-orm";
+import type { Score } from "../shared/schema";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -31,7 +29,7 @@ app.use(
       return allowed.includes(origin) ? origin : null;
     },
     allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    allowHeaders: ["Content-Type"],
+    allowHeaders: ["Content-Type", "Authorization"],
     credentials: true,
   }),
 );
@@ -50,6 +48,24 @@ const requireAuth = createMiddleware<{ Variables: Variables }>(async (c, next) =
 });
 
 app.use("/api/*", requireAuth);
+
+// Maps a raw Supabase DB row (snake_case) to the Score type (camelCase)
+function toScore(row: Record<string, unknown>): Score {
+  return {
+    id: row.id as string,
+    userId: row.user_id as string | null,
+    uploaderName: row.uploader_name as string,
+    teamScore: row.team_score as number,
+    achievement: row.achievement as string | null,
+    gameName: row.game_name as string,
+    objectiveScores: row.objective_scores as Score["objectiveScores"],
+    players: row.players as Score["players"],
+    playerNames: row.player_names as Score["playerNames"],
+    imagePath: row.image_path as string | null,
+    playedDate: row.played_date as string | null,
+    createdAt: row.created_at as Date,
+  };
+}
 
 app.post("/api/parse-score", async (c) => {
   try {
@@ -174,20 +190,19 @@ Rules:
     return c.json(parsed);
   } catch (error: unknown) {
     console.error("Error parsing score:", error);
-    return c.json(
-      { error: "Failed to analyze image. Please try again." },
-      500,
-    );
+    return c.json({ error: "Failed to analyze image. Please try again." }, 500);
   }
 });
 
 app.get("/api/scores", async (c) => {
   try {
-    const allScores = await db
-      .select()
-      .from(scores)
-      .orderBy(desc(scores.createdAt));
-    return c.json(allScores);
+    const { data, error } = await supabaseAdmin
+      .from("scores")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (error) throw error;
+    return c.json((data ?? []).map(toScore));
   } catch (error: unknown) {
     console.error("Error fetching scores:", error);
     return c.json({ error: "Failed to fetch scores" }, 500);
@@ -214,23 +229,25 @@ app.post("/api/scores", async (c) => {
 
     const user = c.get("user");
 
-    const [newScore] = await db
-      .insert(scores)
-      .values({
-        userId: user.id,
-        uploaderName,
-        teamScore,
+    const { data, error } = await supabaseAdmin
+      .from("scores")
+      .insert({
+        user_id: user.id,
+        uploader_name: uploaderName,
+        team_score: teamScore,
         achievement: achievement || null,
-        gameName: gameName || "Unknown",
-        objectiveScores: objectiveScores || null,
+        game_name: gameName || "Unknown",
+        objective_scores: objectiveScores || null,
         players,
-        playerNames: playerNames || null,
-        imagePath: imagePath || null,
-        playedDate: playedDate || null,
+        player_names: playerNames || null,
+        image_path: imagePath || null,
+        played_date: playedDate || null,
       })
-      .returning();
+      .select()
+      .single();
 
-    return c.json(newScore);
+    if (error) throw error;
+    return c.json(toScore(data));
   } catch (error: unknown) {
     console.error("Error saving score:", error);
     return c.json({ error: "Failed to save score" }, 500);
@@ -241,17 +258,17 @@ app.patch("/api/scores/:id/player-names", async (c) => {
   try {
     const id = c.req.param("id");
     const { playerNames: names } = await c.req.json();
-    const [updated] = await db
-      .update(scores)
-      .set({ playerNames: names || null })
-      .where(eq(scores.id, id))
-      .returning();
 
-    if (!updated) {
-      return c.json({ error: "Score not found" }, 404);
-    }
+    const { data, error } = await supabaseAdmin
+      .from("scores")
+      .update({ player_names: names || null })
+      .eq("id", id)
+      .select()
+      .single();
 
-    return c.json(updated);
+    if (error) throw error;
+    if (!data) return c.json({ error: "Score not found" }, 404);
+    return c.json(toScore(data));
   } catch (error: unknown) {
     console.error("Error updating player names:", error);
     return c.json({ error: "Failed to update player names" }, 500);
@@ -261,18 +278,20 @@ app.patch("/api/scores/:id/player-names", async (c) => {
 app.get("/api/scores/:id/image-url", async (c) => {
   try {
     const id = c.req.param("id");
-    const [score] = await db
-      .select({ imagePath: scores.imagePath })
-      .from(scores)
-      .where(eq(scores.id, id));
 
-    if (!score?.imagePath) {
+    const { data: row, error: fetchError } = await supabaseAdmin
+      .from("scores")
+      .select("image_path")
+      .eq("id", id)
+      .single();
+
+    if (fetchError || !row?.image_path) {
       return c.json({ url: null });
     }
 
     const { data, error } = await supabaseAdmin.storage
       .from("scores")
-      .createSignedUrl(score.imagePath, 60);
+      .createSignedUrl(row.image_path, 60);
 
     if (error) {
       console.error("Signed URL error:", error);
@@ -289,15 +308,16 @@ app.get("/api/scores/:id/image-url", async (c) => {
 app.delete("/api/scores/:id", async (c) => {
   try {
     const id = c.req.param("id");
-    const [deleted] = await db
-      .delete(scores)
-      .where(eq(scores.id, id))
-      .returning();
 
-    if (!deleted) {
-      return c.json({ error: "Score not found" }, 404);
-    }
+    const { data, error } = await supabaseAdmin
+      .from("scores")
+      .delete()
+      .eq("id", id)
+      .select()
+      .single();
 
+    if (error) throw error;
+    if (!data) return c.json({ error: "Score not found" }, 404);
     return c.json({ success: true });
   } catch (error: unknown) {
     console.error("Error deleting score:", error);
