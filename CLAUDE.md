@@ -12,10 +12,10 @@ Score Slinger is a mobile + web app for logging scores from theme park ride game
 |---|---|
 | Mobile/Web frontend | Expo (React Native) with expo-router |
 | Backend API | Hono on Vercel (serverless functions) |
-| Database | Supabase PostgreSQL via Drizzle ORM |
+| Database | Supabase PostgreSQL — queried directly via `@supabase/supabase-js` (no ORM) |
 | Image storage | Supabase Storage (private bucket: `scores`) |
 | AI parsing | OpenAI `gpt-4o-mini` vision |
-| Auth | Not yet implemented — planned with Supabase Auth |
+| Auth | Supabase Auth — magic link, invite-only |
 
 ---
 
@@ -26,9 +26,10 @@ Score Slinger is a mobile + web app for logging scores from theme park ride game
 ├── api/
 │   └── index.ts          # Vercel serverless handler — re-exports Hono app
 ├── app/
-│   └── index.tsx         # Main Expo screen (~2300 lines — all UI + client logic)
+│   └── index.tsx         # Main Expo screen — all UI + client logic
 ├── assets/               # Images, fonts
-├── components/           # Shared React components (ErrorBoundary, KeyboardAwareScrollView)
+├── components/
+│   └── AuthScreen.tsx    # Magic link sign-in screen (extensible for future methods)
 ├── constants/
 │   └── colors.ts         # Theme color definitions
 ├── contexts/
@@ -37,24 +38,24 @@ Score Slinger is a mobile + web app for logging scores from theme park ride game
 │   ├── query-client.ts   # TanStack Query setup + apiRequest helper + getApiUrl()
 │   └── supabase.ts       # Client-side Supabase instance (anon key, safe for Expo)
 ├── scripts/
-│   └── build.js          # Static Expo Go bundle build script (legacy, not used for Vercel)
+│   └── build.js          # Legacy Expo Go static build script — unused, can be deleted
 ├── server/
-│   ├── app.ts            # Hono app — all 6 API routes + CORS
-│   ├── db.ts             # Drizzle ORM instance
+│   ├── app.ts            # Hono app — all 6 API routes + CORS + requireAuth middleware
 │   ├── index.ts          # Local dev entry point (@hono/node-server, port 5000)
 │   ├── supabase.ts       # Server-side Supabase admin client (service role key — never expose)
 │   └── templates/
-│       └── landing-page.html  # QR code landing page for Expo Go (served locally)
+│       └── landing-page.html  # Legacy QR landing page — unused, can be deleted
 ├── shared/
-│   └── schema.ts         # Drizzle schema — single source of truth for DB types
+│   └── schema.ts         # TypeScript types only — Score type shared between client and server
 ├── vercel.json           # Vercel build + routing config
-├── drizzle.config.ts     # Drizzle Kit config
 └── .env.example          # All required environment variables with descriptions
 ```
 
 ---
 
 ## API Routes (server/app.ts)
+
+All routes require `Authorization: Bearer <supabase_jwt>` — protected by `requireAuth` middleware.
 
 | Method | Route | Description |
 |---|---|---|
@@ -67,23 +68,25 @@ Score Slinger is a mobile + web app for logging scores from theme park ride game
 
 ---
 
-## Database Schema (shared/schema.ts)
+## Database (Supabase)
+
+Schema is managed via the **Supabase dashboard** — no ORM or migration CLI. The `shared/schema.ts` file contains only the TypeScript `Score` type for use across client and server.
 
 ### `scores` table
 - `id` — UUID primary key
-- `uploaderName` — display name of the person who uploaded
-- `teamScore` — combined team score (integer)
+- `user_id` — nullable text, references `auth.users(id)` — set on every insert
+- `uploader_name` — display name of the person who uploaded
+- `team_score` — combined team score (integer)
 - `achievement` — label above team score (e.g. "BEST THIS HOUR") or null
-- `gameName` — detected game name
-- `objectiveScores` — JSONB `{ fightGiantBot, rescueSpiderMan, destroyGiantBot }`
+- `game_name` — detected game name
+- `objective_scores` — JSONB `{ fightGiantBot, rescueSpiderMan, destroyGiantBot }`
 - `players` — JSONB array `[{ name, score, color }]` — always 4 players (blue/yellow/red/purple)
-- `playerNames` — JSONB `Record<string, string>` — user-edited player labels
-- `imagePath` — Supabase Storage path (e.g. `scores/1234567890-abc.jpg`) — **not** a URL
-- `playedDate` — ISO timestamp of when the game was played (from EXIF or user input)
-- `createdAt` — auto-set timestamp
+- `player_names` — JSONB `Record<string, string>` — user-edited player labels
+- `image_path` — Supabase Storage path (e.g. `scores/1234567890-abc.jpg`) — **not** a URL
+- `played_date` — ISO timestamp of when the game was played (from EXIF or user input)
+- `created_at` — auto-set timestamp
 
-### `users` table
-Defined in schema but not yet used — placeholder for future Supabase Auth integration.
+> Note: column names in the DB are snake_case. The `toScore()` function in `server/app.ts` maps them to the camelCase `Score` type before returning to the client.
 
 ---
 
@@ -93,7 +96,7 @@ Defined in schema but not yet used — placeholder for future Supabase Auth inte
 Client                   Supabase Storage       Hono API             OpenAI
   │                             │                   │                   │
   │── upload to private ───────▶│                   │                   │
-  │   bucket (anon key)         │                   │                   │
+  │   bucket (auth key)         │                   │                   │
   │◀── returns storage path ────│                   │                   │
   │                             │                   │                   │
   │── POST /api/parse-score ───────────────────────▶│                   │
@@ -108,7 +111,7 @@ Client                   Supabase Storage       Hono API             OpenAI
   │   { imagePath, scores... }  │                   │                   │
 ```
 
-Images are **never** stored as base64 in the database. `imagePath` is just a string path in the private `scores` bucket. Displaying an image requires calling `GET /api/scores/:id/image-url` to get a short-lived signed URL (60s).
+Images are **never** stored as base64 in the database. `imagePath` is a string path in the private `scores` bucket. Displaying an image requires calling `GET /api/scores/:id/image-url` to get a short-lived signed URL (60s).
 
 ---
 
@@ -118,6 +121,22 @@ See `.env.example` for the full list. Key distinction:
 
 - `EXPO_PUBLIC_*` — safe for the client (Expo app), bundled into the app build
 - Everything else — server-only, set in Vercel dashboard for production
+
+### Required variables
+```bash
+# Server-only
+OPENAI_API_KEY=
+SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=
+
+# Client-safe (also needed server-side for Vercel build)
+EXPO_PUBLIC_SUPABASE_URL=
+EXPO_PUBLIC_SUPABASE_ANON_KEY=
+EXPO_PUBLIC_DOMAIN=        # e.g. localhost:5000 (dev) or yourapp.vercel.app (prod)
+
+# Optional
+ALLOWED_ORIGINS=           # Comma-separated CORS origins for production
+```
 
 ---
 
@@ -133,7 +152,7 @@ npm run server:dev
 npm run expo:dev
 ```
 
-The `getApiUrl()` function in `lib/query-client.ts` automatically uses `http://` for localhost and `https://` for all other domains.
+Browsing to `http://localhost:5000/` returns 404 — that's expected. The server only handles `/api/*` routes. Static files are served by the Expo dev server on port 8081.
 
 ---
 
@@ -148,16 +167,7 @@ Set all non-`EXPO_PUBLIC_*` environment variables in the Vercel project dashboar
 
 ---
 
-## Known Cleanup Items
-
-- `@types/express` is still in devDependencies — can be removed (Express was replaced by Hono)
-- `@neondatabase/serverless` is still in dependencies — unused, can be removed
-- `scripts/build.js` is the old Replit/Expo Go static build script — can be deleted once Vercel deployment is confirmed working
-- `server/templates/landing-page.html` — the QR landing page, only relevant if serving the Expo Go static build outside of Vercel
-
----
-
-## Auth Architecture (Step 3 — complete)
+## Auth Architecture
 
 - All API routes protected by `requireAuth` middleware in `server/app.ts`
 - Middleware verifies the Supabase JWT via `supabaseAdmin.auth.getUser(token)`
@@ -166,8 +176,7 @@ Set all non-`EXPO_PUBLIC_*` environment variables in the Vercel project dashboar
 - Magic link flow: `signInWithOtp` → email → tap link → deep link → `exchangeCodeForSession` → session
 - Auth screen is in `components/AuthScreen.tsx` — designed with method switcher for future email/password
 - Sign out is in the Settings screen under the Account section
-- `scores.userId` (nullable text) stores `auth.users.id` on every new score insert
-- `users` table removed — Supabase Auth owns user management
+- `scores.user_id` stores `auth.users.id` on every new score insert
 
 ### Supabase dashboard config required for auth
 1. Auth → Settings → **Disable "Enable Sign Ups"** (invite-only)
@@ -181,7 +190,8 @@ Set all non-`EXPO_PUBLIC_*` environment variables in the Vercel project dashboar
 
 ## Pending Work
 
-- [ ] Tighten Supabase Storage RLS: change anon upload policy to authenticated users only
-- [ ] Add `ALLOWED_ORIGINS` to Vercel env vars for production CORS
+- [ ] Deploy to Vercel — set env vars in dashboard, verify end-to-end
+- [ ] Add `ALLOWED_ORIGINS` env var in Vercel dashboard for production CORS
 - [ ] Future: add email/password auth method to `components/AuthScreen.tsx`
 - [ ] Future: per-user score filtering (RLS on `scores` table by `user_id`) if needed
+- [ ] Cleanup: delete `scripts/build.js` and `server/templates/` once Vercel deployment is confirmed
