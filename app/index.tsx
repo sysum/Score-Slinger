@@ -405,6 +405,10 @@ export default function HomeScreen() {
   const [settingsNameInput, setSettingsNameInput] = useState("");
   const displayNameRef = useRef<string | null>(null);
 
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [showChangeNameModal, setShowChangeNameModal] = useState(false);
+  const [profileNameInput, setProfileNameInput] = useState("");
+
   // undefined = loading, null = unauthenticated, Session = authenticated
   const [session, setSession] = useState<Session | null | undefined>(undefined);
 
@@ -654,6 +658,13 @@ export default function HomeScreen() {
     try {
       // Upload image to private Supabase Storage
       const ext = uri.split(".").pop()?.split("?")[0]?.toLowerCase() || "jpg";
+
+      if (Platform.OS === "web" && (ext === "heic" || ext === "heif")) {
+        Alert.alert("Unsupported format", "HEIC files aren't supported on web. Please convert to JPEG or PNG first.");
+        setLoading(false);
+        return;
+      }
+
       const contentType = ext === "png" ? "image/png" : "image/jpeg";
       const storagePath = `scores/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
 
@@ -1527,10 +1538,14 @@ export default function HomeScreen() {
     <View style={[styles.container, { paddingTop: insets.top + webTopInset, backgroundColor: colors.background }]}>
       <View style={styles.header}>
         <Pressable
-          onPress={() => setShowSettings(true)}
+          onPress={() => setShowProfileMenu(true)}
           style={({ pressed }) => [styles.headerBtn, pressed && { opacity: 0.6 }]}
         >
-          <Ionicons name="settings-outline" size={22} color={colors.text} />
+          <View style={[styles.profileAvatar, { backgroundColor: colors.accentDim, borderColor: colors.accentBorder }]}>
+            <Text style={[styles.profileAvatarText, { color: colors.accent }]}>
+              {displayName?.[0]?.toUpperCase() ?? "?"}
+            </Text>
+          </View>
         </Pressable>
         <Text style={[styles.headerTitle, { color: colors.text }]}>Score Slinger</Text>
         <Pressable
@@ -1656,6 +1671,116 @@ export default function HomeScreen() {
                 style={({ pressed }) => [styles.deleteConfirmBtn, { backgroundColor: colors.danger }, pressed && { opacity: 0.6 }]}
               >
                 <Text style={styles.deleteConfirmText}>Delete</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal visible={showProfileMenu} transparent animationType="fade">
+        <Pressable style={styles.modalOverlay} onPress={() => setShowProfileMenu(false)}>
+          <Pressable style={[styles.profileMenuContent, { backgroundColor: colors.surface, borderColor: colors.cardBorder }]} onPress={(e) => e.stopPropagation()}>
+            <View style={styles.profileMenuHeader}>
+              <View style={[styles.profileMenuAvatar, { backgroundColor: colors.accentDim, borderColor: colors.accentBorder }]}>
+                <Text style={[styles.profileMenuAvatarText, { color: colors.accent }]}>
+                  {displayName?.[0]?.toUpperCase() ?? "?"}
+                </Text>
+              </View>
+              <Text style={[styles.profileMenuName, { color: colors.text }]}>{displayName}</Text>
+              <Text style={[styles.profileMenuEmail, { color: colors.textMuted }]}>{session?.user.email}</Text>
+            </View>
+
+            <View style={[styles.profileMenuDivider, { backgroundColor: colors.cardBorder }]} />
+
+            <Pressable
+              onPress={() => {
+                setShowProfileMenu(false);
+                setProfileNameInput(displayName || "");
+                setShowChangeNameModal(true);
+              }}
+              style={({ pressed }) => [styles.profileMenuItem, pressed && { opacity: 0.6 }]}
+            >
+              <View style={styles.profileMenuItemLeft}>
+                <Ionicons name="person-outline" size={20} color={colors.textSecondary} />
+                <Text style={[styles.profileMenuItemText, { color: colors.text }]}>Change Name</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+            </Pressable>
+
+            <View style={[styles.profileMenuDivider, { backgroundColor: colors.cardBorder }]} />
+
+            <Pressable
+              onPress={() => {
+                setShowProfileMenu(false);
+                setShowSettings(true);
+              }}
+              style={({ pressed }) => [styles.profileMenuItem, pressed && { opacity: 0.6 }]}
+            >
+              <View style={styles.profileMenuItemLeft}>
+                <Ionicons name="settings-outline" size={20} color={colors.textSecondary} />
+                <Text style={[styles.profileMenuItemText, { color: colors.text }]}>Settings</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+            </Pressable>
+
+            <View style={[styles.profileMenuDivider, { backgroundColor: colors.cardBorder }]} />
+
+            <Pressable
+              onPress={() => supabase.auth.signOut()}
+              style={({ pressed }) => [styles.profileMenuItem, pressed && { opacity: 0.6 }]}
+            >
+              <View style={styles.profileMenuItemLeft}>
+                <Ionicons name="log-out-outline" size={20} color={colors.danger} />
+                <Text style={[styles.profileMenuItemText, { color: colors.danger }]}>Sign Out</Text>
+              </View>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal visible={showChangeNameModal} transparent animationType="fade">
+        <Pressable style={styles.modalOverlay} onPress={() => setShowChangeNameModal(false)}>
+          <Pressable style={[styles.sortModalContent, { backgroundColor: colors.surface, borderColor: colors.cardBorder }]} onPress={(e) => e.stopPropagation()}>
+            <Text style={[styles.modalTitle, { color: colors.text, marginBottom: 16 }]}>Change Name</Text>
+            <TextInput
+              style={[styles.modalInput, { color: colors.text, backgroundColor: colors.background, borderColor: colors.cardBorder }]}
+              value={profileNameInput}
+              onChangeText={setProfileNameInput}
+              placeholder="Your name"
+              placeholderTextColor={colors.textMuted}
+              autoFocus
+              autoCapitalize="words"
+              returnKeyType="done"
+              onSubmitEditing={() => {
+                if (profileNameInput.trim()) {
+                  saveDisplayName(profileNameInput.trim());
+                  setShowChangeNameModal(false);
+                }
+              }}
+            />
+            <View style={styles.modalButtons}>
+              <Pressable
+                onPress={() => setShowChangeNameModal(false)}
+                style={({ pressed }) => [styles.modalCancelBtn, { backgroundColor: colors.surfaceLight }, pressed && { opacity: 0.6 }]}
+              >
+                <Text style={[styles.modalCancelText, { color: colors.textSecondary }]}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  if (profileNameInput.trim()) {
+                    saveDisplayName(profileNameInput.trim());
+                    setShowChangeNameModal(false);
+                  }
+                }}
+                style={({ pressed }) => [styles.modalSaveBtn, pressed && { opacity: 0.6 }]}
+              >
+                <LinearGradient
+                  colors={[colors.accent, isDark ? "#00C4B0" : "#009E8E"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={StyleSheet.absoluteFill}
+                />
+                <Text style={[styles.modalSaveText, { color: isDark ? colors.background : "#fff" }]}>Save</Text>
               </Pressable>
             </View>
           </Pressable>
@@ -2245,6 +2370,72 @@ const styles = StyleSheet.create({
     width: "100%" as const,
     maxWidth: 340,
     borderWidth: 1,
+  },
+  profileAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
+  },
+  profileAvatarText: {
+    fontFamily: "DMSans_700Bold",
+    fontSize: 14,
+  },
+  profileMenuContent: {
+    borderRadius: 20,
+    width: "100%" as const,
+    maxWidth: 320,
+    borderWidth: 1,
+    overflow: "hidden" as const,
+  },
+  profileMenuHeader: {
+    alignItems: "center" as const,
+    paddingTop: 28,
+    paddingBottom: 20,
+    paddingHorizontal: 24,
+    gap: 4,
+  },
+  profileMenuAvatar: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    borderWidth: 2,
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
+    marginBottom: 8,
+  },
+  profileMenuAvatarText: {
+    fontFamily: "DMSans_700Bold",
+    fontSize: 26,
+  },
+  profileMenuName: {
+    fontFamily: "DMSans_600SemiBold",
+    fontSize: 17,
+  },
+  profileMenuEmail: {
+    fontFamily: "DMSans_400Regular",
+    fontSize: 13,
+  },
+  profileMenuDivider: {
+    height: 1,
+  },
+  profileMenuItem: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    justifyContent: "space-between" as const,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+  },
+  profileMenuItemLeft: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    gap: 14,
+  },
+  profileMenuItemText: {
+    fontFamily: "DMSans_500Medium",
+    fontSize: 15,
   },
   sortOptionRow: {
     flexDirection: "row" as const,
