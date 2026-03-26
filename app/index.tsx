@@ -31,8 +31,12 @@ import Animated, {
   interpolate,
 } from "react-native-reanimated";
 import { getApiUrl, apiRequest } from "@/lib/query-client";
+import { supabase } from "@/lib/supabase";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetch } from "expo/fetch";
+import * as Linking from "expo-linking";
+import type { Session } from "@supabase/supabase-js";
+import AuthScreen from "@/components/AuthScreen";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { type ThemeColors } from "@/constants/colors";
 import { useTheme, AppearanceMode } from "@/contexts/ThemeContext";
@@ -73,8 +77,7 @@ interface Score {
   } | null;
   players: Array<{ name: string; score: number; color: string }>;
   playerNames: Record<string, string> | null;
-  imageBase64: string | null;
-  imageMimeType: string | null;
+  imagePath: string | null;
   playedDate: string | null;
   createdAt: string;
 }
@@ -402,6 +405,33 @@ export default function HomeScreen() {
   const [settingsNameInput, setSettingsNameInput] = useState("");
   const displayNameRef = useRef<string | null>(null);
 
+  // undefined = loading, null = unauthenticated, Session = authenticated
+  const [session, setSession] = useState<Session | null | undefined>(undefined);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    // Handle magic link deep link on native (app already open)
+    const sub = Linking.addEventListener("url", async ({ url }) => {
+      if (url.includes("code=")) {
+        await supabase.auth.exchangeCodeForSession(url);
+      }
+    });
+    // Handle magic link deep link on native (app launched from link)
+    Linking.getInitialURL().then(async (url) => {
+      if (url?.includes("code=")) {
+        await supabase.auth.exchangeCodeForSession(url);
+      }
+    });
+    return () => sub.remove();
+  }, []);
+
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const webBottomInset = Platform.OS === "web" ? 34 : 0;
 
@@ -453,40 +483,8 @@ export default function HomeScreen() {
     await AsyncStorage.setItem("display_name", trimmed);
   };
 
-  const saveToDatabase = async (parsed: ParsedResult, uri?: string, dateStr?: string) => {
+  const saveToDatabase = async (parsed: ParsedResult, imagePath?: string | null, dateStr?: string) => {
     try {
-      let imageBase64: string | null = null;
-      let imageMimeType: string | null = null;
-
-      if (uri) {
-        if (Platform.OS === "web") {
-          try {
-            const response = await globalThis.fetch(uri);
-            const blob = await response.blob();
-            const dataUrl = await new Promise<string>((resolve) => {
-              const reader = new FileReader();
-              reader.onloadend = () => resolve(reader.result as string);
-              reader.readAsDataURL(blob);
-            });
-            const match = dataUrl.match(/^data:(.+?);base64,(.+)$/s);
-            if (match) {
-              imageMimeType = match[1];
-              imageBase64 = match[2];
-            }
-          } catch {}
-        } else {
-          try {
-            const ExpoFS = require("expo-file-system");
-            const base64 = await ExpoFS.readAsStringAsync(uri, {
-              encoding: ExpoFS.EncodingType.Base64,
-            });
-            const ext = uri.split(".").pop()?.split("?")[0]?.toLowerCase() || "jpg";
-            imageMimeType = ext === "png" ? "image/png" : "image/jpeg";
-            imageBase64 = base64;
-          } catch {}
-        }
-      }
-
       const res = await apiRequest("POST", "/api/scores", {
         uploaderName: displayNameRef.current || "Anonymous",
         teamScore: parsed.teamScore,
@@ -495,8 +493,7 @@ export default function HomeScreen() {
         objectiveScores: parsed.objectiveScores || null,
         players: parsed.players,
         playerNames: null,
-        imageBase64,
-        imageMimeType,
+        imagePath: imagePath || null,
         playedDate: dateStr || new Date().toISOString(),
       });
 
@@ -655,30 +652,31 @@ export default function HomeScreen() {
   const analyzeImage = async (uri: string, dateStr?: string, fileName?: string) => {
     setLoading(true);
     try {
-      const baseUrl = getApiUrl();
-      const url = new URL("/api/parse-score", baseUrl);
+      // Upload image to private Supabase Storage
+      const ext = uri.split(".").pop()?.split("?")[0]?.toLowerCase() || "jpg";
+      const contentType = ext === "png" ? "image/png" : "image/jpeg";
+      const storagePath = `scores/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
 
-      const formData = new FormData();
-
+      let uploadError: Error | null = null;
       if (Platform.OS === "web") {
         const response = await globalThis.fetch(uri);
         const blob = await response.blob();
-        formData.append("image", blob, "screenshot.jpg");
+        const { error } = await supabase.storage.from("scores").upload(storagePath, blob, { contentType });
+        if (error) uploadError = error;
       } else {
-        const { File: ExpoFile } = require("expo-file-system");
-        const file = new ExpoFile(uri);
-        formData.append("image", file as any);
+        const ExpoFS = require("expo-file-system");
+        const base64 = await ExpoFS.readAsStringAsync(uri, { encoding: ExpoFS.EncodingType.Base64 });
+        const binaryStr = atob(base64);
+        const bytes = new Uint8Array(binaryStr.length);
+        for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+        const { error } = await supabase.storage.from("scores").upload(storagePath, bytes, { contentType });
+        if (error) uploadError = error;
       }
 
-      const res = await fetch(url.toString(), {
-        method: "POST",
-        body: formData,
-      });
+      if (uploadError) throw uploadError;
 
-      if (!res.ok) {
-        throw new Error("Server error");
-      }
-
+      // Send storage path to server for AI parsing
+      const res = await apiRequest("POST", "/api/parse-score", { imagePath: storagePath });
       const data = await res.json();
 
       if (data.error) {
@@ -690,7 +688,7 @@ export default function HomeScreen() {
         }
         setResult(data);
         setCurrentUploaderName(displayNameRef.current || "Anonymous");
-        await saveToDatabase(data, uri, effectiveDate);
+        await saveToDatabase(data, storagePath, effectiveDate);
       }
 
       if (Platform.OS !== "web") {
@@ -719,7 +717,7 @@ export default function HomeScreen() {
     setPlayerNames({});
   };
 
-  const viewHistoryItem = (item: Score) => {
+  const viewHistoryItem = async (item: Score) => {
     setResult({
       teamScore: item.teamScore,
       achievement: item.achievement,
@@ -727,9 +725,15 @@ export default function HomeScreen() {
       objectiveScores: item.objectiveScores || undefined,
       players: item.players as PlayerScore[],
     });
-    const imgUri = item.imageBase64 && item.imageMimeType
-      ? `data:${item.imageMimeType};base64,${item.imageBase64}`
-      : null;
+
+    let imgUri: string | null = null;
+    if (item.imagePath) {
+      try {
+        const res = await apiRequest("GET", `/api/scores/${item.id}/image-url`);
+        const data = await res.json();
+        imgUri = data.url || null;
+      } catch {}
+    }
     setImageUri(imgUri);
     setPlayedDate(item.playedDate || item.createdAt);
     setCurrentHistoryId(item.id);
@@ -854,6 +858,20 @@ export default function HomeScreen() {
       await AsyncStorage.setItem("sort_option", option);
     } catch {}
   };
+
+  // Auth loading state
+  if (session === undefined) {
+    return (
+      <View style={[styles.container, { backgroundColor: colors.background, alignItems: "center", justifyContent: "center" }]}>
+        <ActivityIndicator size="large" color={colors.accent} />
+      </View>
+    );
+  }
+
+  // Not authenticated
+  if (session === null) {
+    return <AuthScreen />;
+  }
 
   if (!displayNameLoaded) {
     return (
@@ -1076,6 +1094,28 @@ export default function HomeScreen() {
                   )}
                 </Pressable>
               ))}
+            </View>
+          </View>
+
+          <View style={styles.settingsSection}>
+            <Text style={[styles.settingsSectionTitle, { color: colors.text }]}>Account</Text>
+            <Text style={[styles.settingsSectionSubtitle, { color: colors.textMuted }]}>
+              Signed in as {session.user.email}
+            </Text>
+            <View style={[styles.settingsOptionsList, { backgroundColor: colors.surface, borderColor: colors.cardBorder }]}>
+              <Pressable
+                onPress={() => supabase.auth.signOut()}
+                style={({ pressed }) => [
+                  styles.settingsOptionRow,
+                  { borderBottomColor: colors.cardBorder },
+                  pressed && { opacity: 0.6 },
+                ]}
+              >
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+                  <Ionicons name="log-out-outline" size={18} color={colors.danger} />
+                  <Text style={[styles.settingsOptionText, { color: colors.danger }]}>Sign Out</Text>
+                </View>
+              </Pressable>
             </View>
           </View>
 
