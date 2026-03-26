@@ -21,5 +21,8 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     // Let the SDK handle URL-based session detection on web (magic link redirect).
     // On native we handle the deep link manually via Linking.
     detectSessionInUrl: Platform.OS === "web",
+    // PKCE flow: magic link redirects with a short-lived code instead of the
+    // raw access_token, so the token never appears in the browser URL/history.
+    flowType: "pkce",
   },
 });
