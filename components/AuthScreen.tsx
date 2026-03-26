@@ -107,7 +107,7 @@ function MagicLinkForm({
 
     const { error: authError } = await supabase.auth.signInWithOtp({
       email: trimmed,
-      options: { emailRedirectTo: redirectTo },
+      options: { emailRedirectTo: redirectTo, shouldCreateUser: false },
     });
 
     setLoading(false);
