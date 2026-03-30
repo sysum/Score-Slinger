@@ -8,13 +8,16 @@ Built for **Marvel's Web Slingers: A Spider-Man Adventure** at Disney California
 
 ## Features
 
-- Photograph or upload a scoreboard image
+- Magic link sign-in — invite-only access
+- Photograph or upload a scoreboard image (JPEG, PNG; HEIC supported on native)
 - AI parses team score, 4 player scores (by color), and 3 objective scores
 - EXIF date extraction — automatically uses the photo's taken date
 - Duplicate detection — warns if a score from the same timeframe already exists
 - Score history with sorting and browsing
 - Custom player name labels
-- Dark/light theme
+- Profile menu — change name, access settings, sign out
+- Display name synced to Supabase user metadata (persists across devices)
+- Dark/light/system theme
 
 ---
 
@@ -22,8 +25,9 @@ Built for **Marvel's Web Slingers: A Spider-Man Adventure** at Disney California
 
 - **Frontend:** Expo (React Native) — iOS, Android, and Web from one codebase
 - **Backend:** Hono running as a Vercel serverless function
-- **Database:** Supabase PostgreSQL via Drizzle ORM
+- **Database:** Supabase PostgreSQL via `@supabase/supabase-js` (no ORM)
 - **Image storage:** Supabase Storage (private bucket)
+- **Auth:** Supabase Auth — magic link, PKCE flow, invite-only
 - **AI:** OpenAI `gpt-4o-mini` vision API
 
 ---
@@ -58,32 +62,15 @@ cp .env.example .env
 | Variable | Where to find it |
 |---|---|
 | `OPENAI_API_KEY` | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) |
-| `DATABASE_URL` | Supabase → Project Settings → Database → Connection string (Transaction mode) |
 | `SUPABASE_URL` | Supabase → Project Settings → API → Project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase → Project Settings → API → `service_role` key |
 | `EXPO_PUBLIC_SUPABASE_URL` | Same as `SUPABASE_URL` |
 | `EXPO_PUBLIC_SUPABASE_ANON_KEY` | Supabase → Project Settings → API → `anon` / public key |
-| `EXPO_PUBLIC_DOMAIN` | `localhost:5000` for local dev |
+| `EXPO_PUBLIC_DOMAIN` | `localhost:5000` for local dev — no `https://` prefix |
 
-### 3. Set up Supabase Storage
+### 3. Set up Supabase
 
-1. In your Supabase project, go to **Storage**
-2. Create a new bucket named `scores` — leave **Public bucket** unchecked
-3. Add a Storage policy to allow uploads:
-   - Policy name: `Allow anon uploads`
-   - Operation: INSERT
-   - Target roles: `anon`
-   - Definition: `true`
-
-> Once authentication is added, this policy should be tightened to only allow authenticated users to upload.
-
-### 4. Push the database schema
-
-```bash
-npm run db:push
-```
-
-This creates the `scores` and `users` tables in your Supabase database.
+See [`supabase/README.md`](supabase/README.md) for full step-by-step instructions including SQL files for the table, storage policies, and auth configuration.
 
 ---
 
@@ -103,18 +90,20 @@ Then:
 - **Web:** open [http://localhost:8081](http://localhost:8081) in a browser
 - **Mobile:** scan the QR code with Expo Go
 
+> Browsing to `http://localhost:5000/` returns 404 — that's expected. The server only handles `/api/*` routes.
+
 ---
 
 ## Deploying to Vercel
 
 1. Push your code to GitHub
 2. Import the repository in [Vercel](https://vercel.com)
-3. Add all environment variables in the Vercel project settings (including all `EXPO_PUBLIC_*` vars — they need to be present at build time)
-4. Set `EXPO_PUBLIC_DOMAIN` to your Vercel deployment URL (e.g. `yourapp.vercel.app`)
-5. Set `ALLOWED_ORIGINS` to `https://yourapp.vercel.app` for CORS
-6. Deploy
+3. Add all environment variables in the Vercel project settings
+4. Set `EXPO_PUBLIC_DOMAIN` to your production domain **without** `https://` and without a trailing slash (e.g. `www.slingers.app`). It must match the domain users browse to — same origin avoids CORS entirely.
+5. Set `ALLOWED_ORIGINS` to comma-separated allowed origins if needed (e.g. `https://www.slingers.app,https://slingers.app`)
+6. Deploy — **do not use build cache** when changing `EXPO_PUBLIC_*` vars
 
-Vercel automatically builds the Expo web export and routes `/api/*` to the Hono serverless function.
+> `EXPO_PUBLIC_*` vars are baked into the static build at build time. Any change requires a fresh redeploy (no cache).
 
 ---
 
@@ -123,18 +112,18 @@ Vercel automatically builds the Expo web export and routes `/api/*` to the Hono 
 ```
 ├── api/index.ts          # Vercel serverless entry point
 ├── app/index.tsx         # Main screen (UI + client logic)
-├── components/           # Shared components
+├── components/
+│   └── AuthScreen.tsx    # Magic link sign-in screen
 ├── constants/colors.ts   # Theme colors
 ├── contexts/             # React context (theme)
 ├── lib/
 │   ├── query-client.ts   # API request helpers + TanStack Query setup
-│   └── supabase.ts       # Client-side Supabase instance
+│   └── supabase.ts       # Client-side Supabase instance (PKCE, AsyncStorage)
 ├── server/
 │   ├── app.ts            # Hono app with all API routes
-│   ├── db.ts             # Drizzle ORM instance
 │   ├── index.ts          # Local dev server
 │   └── supabase.ts       # Server-side Supabase admin client
-├── shared/schema.ts      # Database schema (Drizzle + Zod types)
+├── shared/schema.ts      # TypeScript Score type (shared client/server)
 ├── vercel.json           # Vercel config
 └── .env.example          # Environment variable reference
 ```
@@ -147,6 +136,5 @@ Vercel automatically builds the Expo web export and routes `/api/*` to the Hono 
 |---|---|
 | `npm run server:dev` | Start the Hono API server locally (port 5000) |
 | `npm run expo:dev` | Start the Expo dev server |
-| `npm run db:push` | Apply schema changes to the database |
 | `npm run lint` | Run ESLint |
 | `npm run lint:fix` | Run ESLint with auto-fix |

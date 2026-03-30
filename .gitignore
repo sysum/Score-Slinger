@@ -40,4 +40,6 @@ yarn-error.*
 
 .env
 
+#Claude things
 .claude
+.claude/*
