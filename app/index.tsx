@@ -508,6 +508,70 @@ export default function HomeScreen() {
     loadPreferences();
   }, []);
 
+  const currentScreen = (() => {
+    if (session === undefined || !displayNameLoaded) return null;
+    if (session === null) return "Auth";
+    if (!displayName) return "Set Display Name";
+    if (showSettings) return "Settings";
+    if (showHistory) return "History";
+    if (result !== null) return "Score Result";
+    return "Home";
+  })();
+
+  const currentPath = (() => {
+    if (!currentScreen) return null;
+    if (currentScreen === "Score Result") {
+      return currentHistoryId ? `/history/${currentHistoryId}` : "/result";
+    }
+    const paths: Record<string, string> = {
+      Auth: "/",
+      "Set Display Name": "/setup",
+      Home: "/",
+      History: "/history",
+      Settings: "/settings",
+    };
+    return paths[currentScreen] ?? "/";
+  })();
+
+  const prevScreenRef = useRef<string | null>(null);
+  const PUSH_SCREENS = new Set(["History", "Settings", "Score Result"]);
+
+  useEffect(() => {
+    if (!currentScreen || !currentPath) return;
+    if (Platform.OS === "web") {
+      // Push only on screen change; replace when upgrading path within same screen
+      // (e.g. /result → /history/{id} after DB save completes)
+      const screenChanged = currentScreen !== prevScreenRef.current;
+      if (screenChanged && PUSH_SCREENS.has(currentScreen)) {
+        window.history.pushState(null, "", currentPath);
+      } else {
+        window.history.replaceState(null, "", currentPath);
+      }
+      prevScreenRef.current = currentScreen;
+    }
+    analytics.screen(currentPath);
+  }, [currentScreen, currentPath]);
+
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const handlePopState = () => {
+      const path = window.location.pathname;
+      if (path === "/history") {
+        setShowHistory(true);
+        setShowSettings(false);
+      } else if (path === "/settings") {
+        setShowSettings(true);
+        setShowHistory(false);
+      } else {
+        // /history/{id}, /result, /setup, / — all fall back to home
+        setShowHistory(false);
+        setShowSettings(false);
+      }
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
   const saveDisplayName = async (name: string) => {
     const trimmed = name.trim();
     if (!trimmed) return;

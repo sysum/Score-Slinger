@@ -13,6 +13,9 @@ export const analytics = {
   track(event: string, props?: Record<string, unknown>) {
     posthog?.capture(event, props);
   },
+  screen(name: string) {
+    posthog?.screen(name);
+  },
   reset() {
     posthog?.reset();
   },
