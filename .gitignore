@@ -43,3 +43,6 @@ yarn-error.*
 #Claude things
 .claude
 .claude/*
+
+# Training / reference assets
+attached_assets/

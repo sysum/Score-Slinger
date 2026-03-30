@@ -37,6 +37,7 @@ import { fetch } from "expo/fetch";
 import * as Linking from "expo-linking";
 import type { Session } from "@supabase/supabase-js";
 import AuthScreen from "@/components/AuthScreen";
+import { analytics } from "@/lib/analytics";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { type ThemeColors } from "@/constants/colors";
 import { useTheme, AppearanceMode } from "@/contexts/ThemeContext";
@@ -413,9 +414,24 @@ export default function HomeScreen() {
   const [session, setSession] = useState<Session | null | undefined>(undefined);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      if (session?.user) {
+        analytics.identify(session.user.id, {
+          email: session.user.email,
+          name: session.user.user_metadata?.display_name as string | undefined,
+        });
+      }
+    });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
+      if (session?.user) {
+        analytics.identify(session.user.id, {
+          email: session.user.email,
+          name: session.user.user_metadata?.display_name as string | undefined,
+        });
+        analytics.track("signed_in");
+      }
     });
     return () => subscription.unsubscribe();
   }, []);
@@ -499,6 +515,7 @@ export default function HomeScreen() {
     displayNameRef.current = trimmed;
     await AsyncStorage.setItem("display_name", trimmed);
     supabase.auth.updateUser({ data: { display_name: trimmed } }); // persist cross-device
+    analytics.track("display_name_changed");
   };
 
   const saveToDatabase = async (parsed: ParsedResult, imagePath?: string | null, dateStr?: string) => {
@@ -520,6 +537,7 @@ export default function HomeScreen() {
       setCurrentUploaderName(newScore.uploaderName);
       setPlayerNames({});
       queryClient.invalidateQueries({ queryKey: ['/api/scores'] });
+      analytics.track("score_saved");
     } catch (err) {
       console.error("Save error:", err);
     }
@@ -532,6 +550,7 @@ export default function HomeScreen() {
     try {
       await apiRequest("DELETE", `/api/scores/${pendingDeleteId}`);
       queryClient.invalidateQueries({ queryKey: ['/api/scores'] });
+      analytics.track("score_deleted");
     } catch {}
     if (currentHistoryId === pendingDeleteId) {
       resetState();
@@ -553,6 +572,7 @@ export default function HomeScreen() {
           playerNames: Object.keys(updated).length > 0 ? updated : null,
         });
         queryClient.invalidateQueries({ queryKey: ['/api/scores'] });
+        analytics.track("player_names_updated");
       } catch {}
     }
   };
@@ -591,6 +611,7 @@ export default function HomeScreen() {
 
       if (pickerResult.canceled) return;
 
+      analytics.track("image_selected", { source: useCamera ? "camera" : "library" });
       const asset = pickerResult.assets[0];
       let photoDate: string = new Date().toISOString();
       if (asset.exif) {
@@ -637,6 +658,7 @@ export default function HomeScreen() {
         setShowHistory(false);
         setCurrentHistoryId(null);
         setDuplicateWarning(true);
+        analytics.track("duplicate_detected");
         return;
       }
 
@@ -669,6 +691,7 @@ export default function HomeScreen() {
 
   const analyzeImage = async (uri: string, dateStr?: string, fileName?: string) => {
     setLoading(true);
+    analytics.track("score_parse_started");
     try {
       // Upload image to private Supabase Storage
       const ext = uri.split(".").pop()?.split("?")[0]?.toLowerCase() || "jpg";
@@ -705,8 +728,10 @@ export default function HomeScreen() {
       const data = await res.json();
 
       if (data.error) {
+        analytics.track("score_parse_failed", { error: data.error });
         setResult({ teamScore: 0, gameName: "Unknown", players: [], error: data.error });
       } else {
+        analytics.track("score_parse_succeeded");
         const effectiveDate = data.photoTakenDate || dateStr;
         if (effectiveDate) {
           setPlayedDate(effectiveDate);
@@ -721,6 +746,7 @@ export default function HomeScreen() {
       }
     } catch (err) {
       console.error("Analysis error:", err);
+      analytics.track("score_parse_failed", { error: String(err) });
       setResult({
         teamScore: 0,
         gameName: "Unknown",
@@ -1129,7 +1155,7 @@ export default function HomeScreen() {
             </Text>
             <View style={[styles.settingsOptionsList, { backgroundColor: colors.surface, borderColor: colors.cardBorder }]}>
               <Pressable
-                onPress={() => supabase.auth.signOut()}
+                onPress={() => { analytics.reset(); supabase.auth.signOut(); }}
                 style={({ pressed }) => [
                   styles.settingsOptionRow,
                   { borderBottomColor: colors.cardBorder },
@@ -1563,7 +1589,7 @@ export default function HomeScreen() {
         </Pressable>
         <Text style={[styles.headerTitle, { color: colors.text }]}>Score Slinger</Text>
         <Pressable
-          onPress={() => setShowHistory(true)}
+          onPress={() => { setShowHistory(true); analytics.track("history_viewed"); }}
           style={({ pressed }) => [styles.headerBtn, pressed && { opacity: 0.6 }]}
         >
           <Ionicons name="time-outline" size={22} color={colors.text} />
@@ -1727,6 +1753,7 @@ export default function HomeScreen() {
               onPress={() => {
                 setShowProfileMenu(false);
                 setShowSettings(true);
+                analytics.track("settings_viewed");
               }}
               style={({ pressed }) => [styles.profileMenuItem, pressed && { opacity: 0.6 }]}
             >
@@ -1740,7 +1767,7 @@ export default function HomeScreen() {
             <View style={[styles.profileMenuDivider, { backgroundColor: colors.cardBorder }]} />
 
             <Pressable
-              onPress={() => supabase.auth.signOut()}
+              onPress={() => { analytics.reset(); supabase.auth.signOut(); }}
               style={({ pressed }) => [styles.profileMenuItem, pressed && { opacity: 0.6 }]}
             >
               <View style={styles.profileMenuItemLeft}>

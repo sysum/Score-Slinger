@@ -14,6 +14,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Linking from "expo-linking";
 import { useTheme } from "@/contexts/ThemeContext";
 import { supabase } from "@/lib/supabase";
+import { analytics } from "@/lib/analytics";
 
 // ─── Auth method registry ─────────────────────────────────────────────────────
 // To add a new sign-in method (e.g. email+password), create a new component
@@ -115,6 +116,7 @@ function MagicLinkForm({
     if (authError) {
       setError(authError.message);
     } else {
+      analytics.track("sign_in_requested");
       setSent(true);
     }
   };
