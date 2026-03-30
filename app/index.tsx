@@ -454,13 +454,26 @@ export default function HomeScreen() {
   }, [displayName]);
 
   useEffect(() => {
-    AsyncStorage.getItem("display_name").then((name) => {
-      if (name) {
-        setDisplayName(name);
-        displayNameRef.current = name;
-      }
+    const loadName = async () => {
+      try {
+        const local = await AsyncStorage.getItem("display_name");
+        if (local) {
+          setDisplayName(local);
+          displayNameRef.current = local;
+        } else {
+          // No local name — check Supabase user metadata for cross-device sync
+          const { data: { session } } = await supabase.auth.getSession();
+          const metaName = session?.user?.user_metadata?.display_name as string | undefined;
+          if (metaName) {
+            setDisplayName(metaName);
+            displayNameRef.current = metaName;
+            await AsyncStorage.setItem("display_name", metaName);
+          }
+        }
+      } catch {}
       setDisplayNameLoaded(true);
-    }).catch(() => setDisplayNameLoaded(true));
+    };
+    loadName();
   }, []);
 
   useEffect(() => {
@@ -485,6 +498,7 @@ export default function HomeScreen() {
     setDisplayName(trimmed);
     displayNameRef.current = trimmed;
     await AsyncStorage.setItem("display_name", trimmed);
+    supabase.auth.updateUser({ data: { display_name: trimmed } }); // persist cross-device
   };
 
   const saveToDatabase = async (parsed: ParsedResult, imagePath?: string | null, dateStr?: string) => {
