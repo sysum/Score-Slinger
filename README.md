@@ -17,6 +17,8 @@ Built for **Marvel's Web Slingers: A Spider-Man Adventure** at Disney California
 - Custom player name labels
 - Profile menu — change name, access settings, sign out
 - Display name synced to Supabase user metadata (persists across devices)
+- Shareable deep-link URLs for individual scores
+- Analytics via PostHog (optional)
 - Dark/light/system theme
 
 ---
@@ -29,6 +31,7 @@ Built for **Marvel's Web Slingers: A Spider-Man Adventure** at Disney California
 - **Image storage:** Supabase Storage (private bucket)
 - **Auth:** Supabase Auth — magic link, PKCE flow, invite-only
 - **AI:** OpenAI `gpt-4o-mini` vision API
+- **Analytics:** PostHog (`posthog-react-native`) — optional, disabled if key not set
 
 ---
 
@@ -67,6 +70,8 @@ cp .env.example .env
 | `EXPO_PUBLIC_SUPABASE_URL` | Same as `SUPABASE_URL` |
 | `EXPO_PUBLIC_SUPABASE_ANON_KEY` | Supabase → Project Settings → API → `anon` / public key |
 | `EXPO_PUBLIC_DOMAIN` | `localhost:5000` for local dev — no `https://` prefix |
+| `EXPO_PUBLIC_POSTHOG_KEY` | (optional) PostHog project API key |
+| `EXPO_PUBLIC_POSTHOG_HOST` | (optional) PostHog ingest host — defaults to `https://us.i.posthog.com` |
 
 ### 3. Set up Supabase
 
@@ -117,6 +122,7 @@ Then:
 ├── constants/colors.ts   # Theme colors
 ├── contexts/             # React context (theme)
 ├── lib/
+│   ├── analytics.ts      # PostHog wrapper (no-op if key not set)
 │   ├── query-client.ts   # API request helpers + TanStack Query setup
 │   └── supabase.ts       # Client-side Supabase instance (PKCE, AsyncStorage)
 ├── server/
