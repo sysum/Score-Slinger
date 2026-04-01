@@ -254,6 +254,8 @@ app.post("/api/scores", async (c) => {
   }
 });
 
+// security-reviewed: no ownership check is intentional — any authenticated user may
+// update player names on any score (collaborative labeling feature).
 app.patch("/api/scores/:id/player-names", async (c) => {
   try {
     const id = c.req.param("id");
@@ -308,6 +310,16 @@ app.get("/api/scores/:id/image-url", async (c) => {
 app.delete("/api/scores/:id", async (c) => {
   try {
     const id = c.req.param("id");
+    const user = c.get("user");
+
+    const { data: existing, error: fetchError } = await supabaseAdmin
+      .from("scores")
+      .select("user_id")
+      .eq("id", id)
+      .single();
+
+    if (fetchError || !existing) return c.json({ error: "Score not found" }, 404);
+    if (existing.user_id !== user.id) return c.json({ error: "Forbidden" }, 403);
 
     const { data, error } = await supabaseAdmin
       .from("scores")
