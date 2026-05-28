@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   View,
   Text,
@@ -7,17 +7,18 @@ import {
   StyleSheet,
   ActivityIndicator,
   Modal,
-  PanResponder,
   Platform,
   RefreshControl,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withSpring,
   interpolate,
+  runOnJS,
 } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
@@ -130,30 +131,51 @@ function HistoryCard({
   const dateStr = formatDate(typeof dateSource === "string" ? dateSource : new Date(dateSource).toISOString());
 
   const translateX = useSharedValue(0);
-  const isSwiped = useRef(false);
+  const isSwiped = useSharedValue(false);
 
-  const panResponder = useRef(
-    PanResponder.create({
-      onMoveShouldSetPanResponder: (_, g) =>
-        Math.abs(g.dx) > 10 && Math.abs(g.dx) > Math.abs(g.dy),
-      onPanResponderMove: (_, g) => {
-        if (g.dx < 0) {
-          translateX.value = Math.max(g.dx, DELETE_THRESHOLD - 10);
-        } else if (isSwiped.current) {
-          translateX.value = Math.min(DELETE_THRESHOLD + g.dx, 0);
-        }
-      },
-      onPanResponderRelease: (_, g) => {
-        if (g.dx < DELETE_THRESHOLD / 2) {
-          translateX.value = withSpring(DELETE_THRESHOLD, { damping: 20, stiffness: 200 });
-          isSwiped.current = true;
-        } else {
+  const panGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetX([-10, 10])
+        .onUpdate((g) => {
+          "worklet";
+          if (g.translationX < 0) {
+            translateX.value = Math.max(g.translationX, DELETE_THRESHOLD - 10);
+          } else if (isSwiped.value) {
+            translateX.value = Math.min(DELETE_THRESHOLD + g.translationX, 0);
+          }
+        })
+        .onEnd((g) => {
+          "worklet";
+          if (g.translationX < DELETE_THRESHOLD / 2) {
+            translateX.value = withSpring(DELETE_THRESHOLD, { damping: 20, stiffness: 200 });
+            isSwiped.value = true;
+          } else {
+            translateX.value = withSpring(0, { damping: 20, stiffness: 200 });
+            isSwiped.value = false;
+          }
+        }),
+    [translateX, isSwiped],
+  );
+
+  const tapGesture = useMemo(
+    () =>
+      Gesture.Tap().onEnd(() => {
+        "worklet";
+        if (isSwiped.value) {
           translateX.value = withSpring(0, { damping: 20, stiffness: 200 });
-          isSwiped.current = false;
+          isSwiped.value = false;
+        } else {
+          runOnJS(onPress)();
         }
-      },
-    })
-  ).current;
+      }),
+    [translateX, isSwiped, onPress],
+  );
+
+  const cardGesture = useMemo(
+    () => (canDelete ? Gesture.Exclusive(panGesture, tapGesture) : tapGesture),
+    [canDelete, panGesture, tapGesture],
+  );
 
   const cardStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: translateX.value }],
@@ -163,17 +185,8 @@ function HistoryCard({
     opacity: interpolate(translateX.value, [0, DELETE_THRESHOLD], [0, 1]),
   }));
 
-  const handlePress = () => {
-    if (isSwiped.current) {
-      translateX.value = withSpring(0, { damping: 20, stiffness: 200 });
-      isSwiped.current = false;
-      return;
-    }
-    onPress();
-  };
-
   const sortedPlayers = [...item.players].sort(
-    (a, b) => PLAYER_COLOR_ORDER.indexOf(a.color) - PLAYER_COLOR_ORDER.indexOf(b.color)
+    (a, b) => PLAYER_COLOR_ORDER.indexOf(a.color) - PLAYER_COLOR_ORDER.indexOf(b.color),
   );
 
   const playerColorMap: Record<string, string> = {
@@ -202,12 +215,12 @@ function HistoryCard({
         </Animated.View>
       )}
 
-      <Animated.View
-        style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.cardBorder }, cardStyle]}
-        {...(canDelete ? panResponder.panHandlers : {})}
-      >
-        <Pressable onPress={handlePress} style={({ pressed }) => [styles.cardContent, pressed && { opacity: 0.75 }]}>
-          {/* Top row: date + achievement + score */}
+      <GestureDetector gesture={cardGesture}>
+        <Animated.View
+          style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.cardBorder }, cardStyle]}
+        >
+          <View style={styles.cardContent}>
+            {/* Top row: date + achievement + score */}
           <View style={styles.cardTop}>
             <View style={styles.cardTopLeft}>
               {item.achievement ? (
@@ -248,8 +261,9 @@ function HistoryCard({
           <Text style={[styles.uploaderText, { color: colors.textMuted }]}>
             by {item.uploaderName}{item.uploaderName === displayName ? " (you)" : ""}
           </Text>
-        </Pressable>
-      </Animated.View>
+        </View>
+        </Animated.View>
+      </GestureDetector>
     </View>
   );
 }

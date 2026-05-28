@@ -34,7 +34,9 @@
       "expo-font",
       "expo-web-browser",
       "@react-native-community/datetimepicker",
-      "expo-image"
+      "expo-image",
+      "expo-splash-screen",
+      "expo-status-bar"
     ],
     "experiments": {
       "typedRoutes": true,
