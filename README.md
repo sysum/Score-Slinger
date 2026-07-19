@@ -69,7 +69,7 @@ cp .env.example .env
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase → Project Settings → API → `service_role` key |
 | `EXPO_PUBLIC_SUPABASE_URL` | Same as `SUPABASE_URL` |
 | `EXPO_PUBLIC_SUPABASE_ANON_KEY` | Supabase → Project Settings → API → `anon` / public key |
-| `EXPO_PUBLIC_DOMAIN` | `localhost:5000` for local dev — no `https://` prefix |
+| `EXPO_PUBLIC_DOMAIN` | `localhost:5055` for local dev — no `https://` prefix |
 | `EXPO_PUBLIC_POSTHOG_KEY` | (optional) PostHog project API key |
 | `EXPO_PUBLIC_POSTHOG_HOST` | (optional) PostHog ingest host — defaults to `https://us.i.posthog.com` |
 
@@ -81,10 +81,18 @@ See [`supabase/README.md`](supabase/README.md) for full step-by-step instruction
 
 ## Running Locally
 
-Two terminals are required:
+Start both the Hono API server and the Expo dev server in one command:
 
 ```bash
-# Terminal 1 — API server (http://localhost:5000)
+npm run dev
+```
+
+This runs `server:dev` and `expo:dev` in parallel via `concurrently`, with `[server]` and `[expo]` prefixes on every line. `Ctrl-C` stops both.
+
+If you want Expo's interactive shortcuts (`r` to reload, `i` for iOS sim, `j` for debugger), run them in two terminals instead:
+
+```bash
+# Terminal 1 — API server (http://localhost:5055)
 npm run server:dev
 
 # Terminal 2 — Expo dev server
@@ -95,7 +103,7 @@ Then:
 - **Web:** open [http://localhost:8081](http://localhost:8081) in a browser
 - **Mobile:** scan the QR code with Expo Go
 
-> Browsing to `http://localhost:5000/` returns 404 — that's expected. The server only handles `/api/*` routes.
+> Browsing to `http://localhost:5055/` returns 404 — that's expected. The server only handles `/api/*` routes.
 
 ---
 
@@ -140,7 +148,8 @@ Then:
 
 | Command | Description |
 |---|---|
-| `npm run server:dev` | Start the Hono API server locally (port 5000) |
+| `npm run dev` | Start the Hono API server and Expo dev server together |
+| `npm run server:dev` | Start the Hono API server locally (port 5055) |
 | `npm run expo:dev` | Start the Expo dev server |
 | `npm run lint` | Run ESLint |
 | `npm run lint:fix` | Run ESLint with auto-fix |

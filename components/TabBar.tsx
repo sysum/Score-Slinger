@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, type ComponentProps } from "react";
 import {
   View,
   Text,
@@ -8,17 +8,15 @@ import {
   Alert,
   Platform,
 } from "react-native";
-import type { ComponentProps } from "react";
-import { Tabs } from "expo-router";
-
-type BottomTabBarProps = Parameters<NonNullable<ComponentProps<typeof Tabs>["tabBar"]>>[0];
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as ImagePicker from "expo-image-picker";
 import * as Haptics from "expo-haptics";
-import { useRouter } from "expo-router";
+import { Tabs, useRouter } from "expo-router";
 import { useTheme } from "@/contexts/ThemeContext";
 import { analytics } from "@/lib/analytics";
+
+type BottomTabBarProps = Parameters<NonNullable<ComponentProps<typeof Tabs>["tabBar"]>>[0];
 
 const TAB_BAR_HEIGHT = 60;
 const FAB_SIZE = 64;
@@ -285,10 +283,7 @@ const styles = StyleSheet.create({
     borderRadius: FAB_SIZE / 2,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#00E5CC",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
+    boxShadow: "0px 4px 12px rgba(0, 229, 204, 0.4)",
     elevation: 8,
   },
   overlay: {
