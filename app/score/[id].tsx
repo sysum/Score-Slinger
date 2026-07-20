@@ -120,7 +120,7 @@ function PlayerCard({
           />
         ) : (
           <Pressable
-            onPress={() => { if (canEdit) { setNameInput(customName || ""); setEditing(true); } }}
+            onPress={() => { if (canEdit) { analytics.track("player_name_edit_started", { location: "detail" }); setNameInput(customName || ""); setEditing(true); } }}
             style={styles.playerNameRow}
             disabled={!canEdit}
           >
@@ -191,9 +191,19 @@ export default function ScoreDetailScreen() {
     try {
       await apiRequest("DELETE", `/api/scores/${id}`);
       queryClient.invalidateQueries({ queryKey: ["/api/scores"] });
-      analytics.track("score_deleted");
+      analytics.track("score_deleted", { source: "detail", scoreId: id });
     } catch {}
     router.back();
+  };
+
+  const closeDetail = () => {
+    analytics.track("score_detail_closed", { scoreId: id });
+    router.back();
+  };
+
+  const cancelDeleteModal = () => {
+    analytics.track("score_delete_canceled", { source: "detail", scoreId: id });
+    setShowDeleteModal(false);
   };
 
   const formatDate = (iso: string) => {
@@ -212,7 +222,7 @@ export default function ScoreDetailScreen() {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <View style={[styles.header, { paddingTop: insets.top + webTop, borderBottomColor: colors.cardBorder }]}>
-          <Pressable onPress={() => router.back()} style={({ pressed }) => [styles.headerBtn, pressed && { opacity: 0.6 }]}>
+          <Pressable onPress={closeDetail} style={({ pressed }) => [styles.headerBtn, pressed && { opacity: 0.6 }]}>
             <Ionicons name="close" size={24} color={colors.textSecondary} />
           </Pressable>
           <View style={{ width: 40 }} />
@@ -234,13 +244,13 @@ export default function ScoreDetailScreen() {
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + webTop, borderBottomColor: colors.cardBorder }]}>
-        <Pressable onPress={() => router.back()} style={({ pressed }) => [styles.headerBtn, pressed && { opacity: 0.6 }]}>
+        <Pressable onPress={closeDetail} style={({ pressed }) => [styles.headerBtn, pressed && { opacity: 0.6 }]}>
           <Ionicons name="close" size={24} color={colors.textSecondary} />
         </Pressable>
         <Text style={[styles.headerTitle, { color: colors.text }]}>Score Detail</Text>
         {canDelete ? (
           <Pressable
-            onPress={() => setShowDeleteModal(true)}
+            onPress={() => { analytics.track("score_delete_requested", { via: "detail_button", scoreId: id }); setShowDeleteModal(true); }}
             style={({ pressed }) => [styles.headerBtn, pressed && { opacity: 0.6 }]}
           >
             <Ionicons name="trash-outline" size={20} color={colors.danger} />
@@ -354,7 +364,7 @@ export default function ScoreDetailScreen() {
 
       {/* Delete confirm modal */}
       <Modal visible={showDeleteModal} transparent animationType="fade">
-        <Pressable style={styles.modalOverlay} onPress={() => setShowDeleteModal(false)}>
+        <Pressable style={styles.modalOverlay} onPress={cancelDeleteModal}>
           <Pressable
             style={[styles.modalBox, { backgroundColor: colors.surface, borderColor: colors.cardBorder }]}
             onPress={(e) => e.stopPropagation()}
@@ -365,7 +375,7 @@ export default function ScoreDetailScreen() {
             </Text>
             <View style={styles.modalBtns}>
               <Pressable
-                onPress={() => setShowDeleteModal(false)}
+                onPress={cancelDeleteModal}
                 style={({ pressed }) => [styles.modalCancelBtn, { backgroundColor: colors.surfaceLight }, pressed && { opacity: 0.7 }]}
               >
                 <Text style={[styles.modalCancelText, { color: colors.textSecondary }]}>Cancel</Text>
