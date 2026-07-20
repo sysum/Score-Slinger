@@ -43,9 +43,3 @@ yarn-error.*
 
 # Training / reference assets
 attached_assets/
-
-
-HANDOFF.md
-CONTEXT.md
-CLAUDE.md
-PROJECT_STATE.md
