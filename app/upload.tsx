@@ -171,7 +171,7 @@ export default function UploadScreen() {
   const [playedDate, setPlayedDate] = useState<string>(photoDate ?? new Date().toISOString());
   const [playerNames, setPlayerNames] = useState<Record<string, string>>({});
   const [editingDate, setEditingDate] = useState(false);
-  const [editDate, setEditDate] = useState(new Date(photoDate ?? Date.now()));
+  const [editDate, setEditDate] = useState(() => new Date(photoDate ?? Date.now()));
   const [webDateStr, setWebDateStr] = useState("");
   const [webTimeStr, setWebTimeStr] = useState("");
   const [showDuplicateWarning, setShowDuplicateWarning] = useState(false);
@@ -185,7 +185,8 @@ export default function UploadScreen() {
     });
   }, []);
 
-  // Check duplicate, then start analysis on mount
+  // Intentional on-mount kickoff: check for duplicates, otherwise begin analysis.
+  /* eslint-disable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
   useEffect(() => {
     if (!uri) return;
     const isDuplicate = scores.some((item) => {
@@ -199,6 +200,7 @@ export default function UploadScreen() {
       analyzeImage(uri, photoDate, fileName);
     }
   }, []);
+  /* eslint-enable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
 
   const analyzeImage = async (imageUri: string, dateStr?: string, file?: string) => {
     setLoading(true);

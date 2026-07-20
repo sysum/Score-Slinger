@@ -31,18 +31,15 @@ yarn-error.*
 .DS_Store
 *.pem
 
-# local env files
-.env*.local
+# env files (all variants — local, staging, production, etc.)
+.env*
 
 # typescript
 *.tsbuildinfo
 .vercel
 
-.env
-
-#Claude things
-.claude
-.claude/*
+# Claude things
+.claude/
 
 # Training / reference assets
 attached_assets/

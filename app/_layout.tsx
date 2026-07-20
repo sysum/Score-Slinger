@@ -59,7 +59,7 @@ function DisplayNameSetup({ onSave }: { onSave: (name: string) => void }) {
         <View style={[setupStyles.iconCircle, { backgroundColor: colors.accentDim, borderColor: colors.accentBorder }]}>
           <Ionicons name="person-outline" size={44} color={colors.accent} />
         </View>
-        <Text style={[setupStyles.title, { color: colors.text }]}>What's your name?</Text>
+        <Text style={[setupStyles.title, { color: colors.text }]}>What&apos;s your name?</Text>
         <Text style={[setupStyles.subtitle, { color: colors.textSecondary }]}>
           This will be shown with your uploaded scores
         </Text>
@@ -89,7 +89,7 @@ function DisplayNameSetup({ onSave }: { onSave: (name: string) => void }) {
             end={{ x: 1, y: 0 }}
             style={StyleSheet.absoluteFill}
           />
-          <Text style={[setupStyles.buttonText, { color: colors.background }]}>Let's Go</Text>
+          <Text style={[setupStyles.buttonText, { color: colors.background }]}>Let&apos;s Go</Text>
         </Pressable>
       </View>
     </View>

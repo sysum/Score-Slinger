@@ -146,40 +146,37 @@ export default function ScoreDetailScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
 
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
-  const [imageLoading, setImageLoading] = useState(false);
-  const [playerNames, setPlayerNames] = useState<Record<string, string>>({});
+  const [localPlayerNames, setLocalPlayerNames] = useState<Record<string, string> | null>(null);
   const [displayName, setDisplayName] = useState("");
   const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   const { data: scores = [] } = useQuery<Score[]>({ queryKey: ["/api/scores"] });
   const score = scores.find((s) => s.id === id);
 
+  const playerNames = localPlayerNames ?? score?.playerNames ?? {};
+
+  const { data: imageUrlData, isLoading: imageLoading } = useQuery<{ url: string }>({
+    queryKey: ["/api/scores", id, "image-url"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/scores/${id}/image-url`);
+      return res.json();
+    },
+    enabled: !!score?.imagePath,
+  });
+  const imageUrl = imageUrlData?.url ?? null;
+
   useEffect(() => {
     AsyncStorage.getItem("display_name").then((n) => { if (n) setDisplayName(n); });
   }, []);
 
   useEffect(() => {
-    if (score?.playerNames) {
-      setPlayerNames(score.playerNames);
-    }
-  }, [score?.id]);
-
-  useEffect(() => {
-    if (!score?.imagePath) return;
-    setImageLoading(true);
-    apiRequest("GET", `/api/scores/${id}/image-url`)
-      .then((res) => res.json())
-      .then((data) => { if (data.url) setImageUrl(data.url); })
-      .catch(() => {})
-      .finally(() => setImageLoading(false));
-    analytics.screen(`/score/${id}`);
-  }, [id, score?.imagePath]);
+    if (id) analytics.screen(`/score/${id}`);
+  }, [id]);
 
   const updatePlayerName = async (color: string, name: string) => {
     const updated = { ...playerNames, [color]: name || undefined } as Record<string, string>;
     if (!name) delete updated[color];
-    setPlayerNames(updated);
+    setLocalPlayerNames(updated);
     try {
       await apiRequest("PATCH", `/api/scores/${id}/player-names`, {
         playerNames: Object.keys(updated).length > 0 ? updated : null,

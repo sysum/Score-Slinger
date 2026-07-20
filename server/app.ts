@@ -16,7 +16,7 @@ const app = new Hono<{ Variables: Variables }>();
 app.use(
   "*",
   cors({
-    origin: (origin) => {
+    origin: (origin: string) => {
       if (!origin) return origin;
       const isLocalhost =
         origin.startsWith("http://localhost:") ||
@@ -24,7 +24,7 @@ app.use(
       if (isLocalhost) return origin;
       const allowed = (process.env.ALLOWED_ORIGINS ?? "")
         .split(",")
-        .map((o) => o.trim())
+        .map((o: string) => o.trim())
         .filter(Boolean);
       return allowed.includes(origin) ? origin : null;
     },
