@@ -110,16 +110,24 @@ export default function ProfileScreen() {
   };
 
   const handleSortChange = async (option: SortOption) => {
+    analytics.track("default_sort_changed", { sort: option });
     setSortOption(option);
     await AsyncStorage.setItem("sort_option", option).catch(() => {});
   };
 
   const handleDateFormatChange = async (key: DateFormatKey) => {
+    analytics.track("date_format_changed", { format: key });
     setDateFormat(key);
     await AsyncStorage.setItem("date_format", key).catch(() => {});
   };
 
+  const handleAppearanceChange = (m: AppearanceMode) => {
+    analytics.track("appearance_changed", { mode: m });
+    setMode(m);
+  };
+
   const handleSignOut = () => {
+    analytics.track("signed_out");
     analytics.reset();
     supabase.auth.signOut();
   };
@@ -151,7 +159,7 @@ export default function ProfileScreen() {
             <Text style={[styles.emailText, { color: colors.textMuted }]}>{email}</Text>
           </View>
           <Pressable
-            onPress={() => { setNameInput(displayName); setEditingName(true); }}
+            onPress={() => { analytics.track("display_name_edit_started"); setNameInput(displayName); setEditingName(true); }}
             style={({ pressed }) => [pressed && { opacity: 0.6 }]}
           >
             <Feather name="edit-2" size={18} color={colors.accent} />
@@ -187,7 +195,7 @@ export default function ProfileScreen() {
             {(["dark", "light", "system"] as AppearanceMode[]).map((m, i) => (
               <Pressable
                 key={m}
-                onPress={() => setMode(m)}
+                onPress={() => handleAppearanceChange(m)}
                 style={({ pressed }) => [
                   styles.optionRow,
                   { borderBottomColor: colors.cardBorder },

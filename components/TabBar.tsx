@@ -34,10 +34,18 @@ export default function TabBar({ state, descriptors, navigation }: BottomTabBarP
     if (Platform.OS !== "web") {
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
+    analytics.track("add_score_fab_pressed", { platform: Platform.OS });
     setShowActionSheet(true);
   };
 
+  const dismissActionSheet = () => {
+    analytics.track("add_score_sheet_dismissed");
+    setShowActionSheet(false);
+  };
+
   const launchPicker = async (useCamera: boolean) => {
+    const source = useCamera ? "camera" : "library";
+    analytics.track("add_score_source_selected", { source });
     setShowActionSheet(false);
 
     // Small delay to let action sheet close cleanly
@@ -52,6 +60,7 @@ export default function TabBar({ state, descriptors, navigation }: BottomTabBarP
       if (useCamera) {
         const { status } = await ImagePicker.requestCameraPermissionsAsync();
         if (status !== "granted") {
+          analytics.track("image_permission_denied", { source });
           Alert.alert("Permission needed", "Camera access is required to take photos.");
           return;
         }
@@ -63,6 +72,7 @@ export default function TabBar({ state, descriptors, navigation }: BottomTabBarP
       } else {
         const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
         if (status !== "granted") {
+          analytics.track("image_permission_denied", { source });
           Alert.alert("Permission needed", "Photo library access is required.");
           return;
         }
@@ -74,9 +84,12 @@ export default function TabBar({ state, descriptors, navigation }: BottomTabBarP
         });
       }
 
-      if (pickerResult.canceled) return;
+      if (pickerResult.canceled) {
+        analytics.track("image_pick_canceled", { source });
+        return;
+      }
 
-      analytics.track("image_selected", { source: useCamera ? "camera" : "library" });
+      analytics.track("image_selected", { source });
       const asset = pickerResult.assets[0];
 
       // Extract EXIF date
@@ -116,6 +129,7 @@ export default function TabBar({ state, descriptors, navigation }: BottomTabBarP
         },
       });
     } catch (err) {
+      analytics.track("image_pick_failed", { source, error: String(err) });
       console.error("Image pick error:", err);
     }
   };
@@ -168,8 +182,8 @@ export default function TabBar({ state, descriptors, navigation }: BottomTabBarP
       </Pressable>
 
       {/* Action sheet */}
-      <Modal visible={showActionSheet} transparent animationType="fade" onRequestClose={() => setShowActionSheet(false)}>
-        <Pressable style={styles.overlay} onPress={() => setShowActionSheet(false)}>
+      <Modal visible={showActionSheet} transparent animationType="fade" onRequestClose={dismissActionSheet}>
+        <Pressable style={styles.overlay} onPress={dismissActionSheet}>
           <Pressable style={[styles.sheet, { backgroundColor: colors.surface, borderColor: colors.cardBorder }]} onPress={(e) => e.stopPropagation()}>
             <View style={[styles.sheetHandle, { backgroundColor: colors.cardBorder }]} />
             <Text style={[styles.sheetTitle, { color: colors.text }]}>Add Score</Text>
@@ -203,7 +217,7 @@ export default function TabBar({ state, descriptors, navigation }: BottomTabBarP
             </Pressable>
 
             <Pressable
-              onPress={() => setShowActionSheet(false)}
+              onPress={dismissActionSheet}
               style={({ pressed }) => [styles.cancelBtn, { backgroundColor: colors.surfaceLight }, pressed && { opacity: 0.7 }]}
             >
               <Text style={[styles.cancelText, { color: colors.textSecondary }]}>Cancel</Text>
@@ -233,9 +247,12 @@ function TabButton({
   const { options } = descriptors[route.key];
   const isFocused = state.index === state.routes.indexOf(route);
 
+  const tabName = route.name === "index" ? "history" : "profile";
+
   const onPress = () => {
     const event = navigation.emit({ type: "tabPress", target: route.key, canPreventDefault: true });
     if (!isFocused && !event.defaultPrevented) {
+      analytics.track("tab_pressed", { tab: tabName });
       navigation.navigate(route.name, route.params);
     }
   };

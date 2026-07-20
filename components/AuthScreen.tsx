@@ -114,6 +114,7 @@ function MagicLinkForm({
     setLoading(false);
 
     if (authError) {
+      analytics.track("sign_in_failed", { error: authError.message });
       setError(authError.message);
     } else {
       analytics.track("sign_in_requested");

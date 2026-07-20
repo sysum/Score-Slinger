@@ -133,6 +133,8 @@ function HistoryCard({
   const translateX = useSharedValue(0);
   const isSwiped = useSharedValue(false);
 
+  const trackSwipeOpen = () => analytics.track("card_swiped_open", { platform: Platform.OS });
+
   const panGesture = useMemo(
     () =>
       Gesture.Pan()
@@ -148,8 +150,10 @@ function HistoryCard({
         .onEnd((g) => {
           "worklet";
           if (g.translationX < DELETE_THRESHOLD / 2) {
+            const wasOpen = isSwiped.value;
             translateX.value = withSpring(DELETE_THRESHOLD, { damping: 20, stiffness: 200 });
             isSwiped.value = true;
+            if (!wasOpen) runOnJS(trackSwipeOpen)();
           } else {
             translateX.value = withSpring(0, { damping: 20, stiffness: 200 });
             isSwiped.value = false;
@@ -205,6 +209,7 @@ function HistoryCard({
           <Pressable
             onPress={() => {
               if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              analytics.track("score_delete_requested", { via: "swipe" });
               onDelete();
             }}
             style={({ pressed }) => [styles.deleteBtn, pressed && { opacity: 0.7 }]}
@@ -297,6 +302,7 @@ export default function HistoryScreen() {
 
   const onRefresh = async () => {
     setRefreshing(true);
+    analytics.track("history_pull_refreshed", { platform: Platform.OS });
     await queryClient.invalidateQueries({ queryKey: ["/api/scores"] });
     setRefreshing(false);
   };
@@ -306,12 +312,18 @@ export default function HistoryScreen() {
     try {
       await apiRequest("DELETE", `/api/scores/${pendingDeleteId}`);
       queryClient.invalidateQueries({ queryKey: ["/api/scores"] });
-      analytics.track("score_deleted");
+      analytics.track("score_deleted", { source: "history", scoreId: pendingDeleteId });
     } catch {}
     setPendingDeleteId(null);
   };
 
+  const cancelDelete = () => {
+    analytics.track("score_delete_canceled", { source: "history" });
+    setPendingDeleteId(null);
+  };
+
   const handleSortChange = async (option: SortOption) => {
+    analytics.track("history_sort_changed", { sort: option });
     setSortOption(option);
     setShowSortPicker(false);
     await AsyncStorage.setItem("sort_option", option).catch(() => {});
@@ -327,7 +339,7 @@ export default function HistoryScreen() {
       <View style={[styles.header, { paddingTop: insets.top + webTop, borderBottomColor: colors.cardBorder }]}>
         <Text style={[styles.headerTitle, { color: colors.text }]}>History</Text>
         <Pressable
-          onPress={() => setShowSortPicker(true)}
+          onPress={() => { analytics.track("history_sort_opened"); setShowSortPicker(true); }}
           style={({ pressed }) => [styles.headerBtn, pressed && { opacity: 0.6 }]}
         >
           <Ionicons name="swap-vertical" size={22} color={colors.textSecondary} />
@@ -372,7 +384,7 @@ export default function HistoryScreen() {
                 displayName={displayName}
                 canDelete={item.uploaderName === displayName}
                 onPress={() => {
-                  analytics.track("score_detail_viewed");
+                  analytics.track("score_detail_viewed", { source: "history", scoreId: item.id });
                   router.push(`/score/${item.id}`);
                 }}
                 onDelete={() => setPendingDeleteId(item.id)}
@@ -384,7 +396,7 @@ export default function HistoryScreen() {
 
       {/* Delete confirm modal */}
       <Modal visible={!!pendingDeleteId} transparent animationType="fade">
-        <Pressable style={styles.modalOverlay} onPress={() => setPendingDeleteId(null)}>
+        <Pressable style={styles.modalOverlay} onPress={cancelDelete}>
           <Pressable
             style={[styles.modalBox, { backgroundColor: colors.surface, borderColor: colors.cardBorder }]}
             onPress={(e) => e.stopPropagation()}
@@ -395,7 +407,7 @@ export default function HistoryScreen() {
             </Text>
             <View style={styles.modalBtns}>
               <Pressable
-                onPress={() => setPendingDeleteId(null)}
+                onPress={cancelDelete}
                 style={({ pressed }) => [styles.modalCancelBtn, { backgroundColor: colors.surfaceLight }, pressed && { opacity: 0.7 }]}
               >
                 <Text style={[styles.modalCancelText, { color: colors.textSecondary }]}>Cancel</Text>

@@ -137,7 +137,7 @@ function PlayerCard({
             autoCapitalize="words"
           />
         ) : (
-          <Pressable onPress={() => { setNameInput(customName || ""); setEditing(true); }} style={styles.playerNameRow}>
+          <Pressable onPress={() => { analytics.track("player_name_edit_started", { location: "upload" }); setNameInput(customName || ""); setEditing(true); }} style={styles.playerNameRow}>
             <Text style={[styles.playerName, { color }]}>{displayName}</Text>
             <Feather name="edit-2" size={12} color={colors.textMuted} />
           </Pressable>
@@ -196,6 +196,7 @@ export default function UploadScreen() {
     if (isDuplicate) {
       setLoading(false);
       setShowDuplicateWarning(true);
+      analytics.track("duplicate_warning_shown");
     } else {
       analyzeImage(uri, photoDate, fileName);
     }
@@ -309,11 +310,24 @@ export default function UploadScreen() {
   };
 
   const handleDone = () => {
+    analytics.track("score_kept", { scoreId: savedId ?? undefined });
     router.back();
+  };
+
+  const cancelDuplicate = () => {
+    analytics.track("duplicate_upload_canceled");
+    setShowDuplicateWarning(false);
+    router.back();
+  };
+
+  const confirmDuplicate = () => {
+    analytics.track("duplicate_upload_confirmed");
+    analyzeImage(uri!, photoDate, fileName);
   };
 
   // Date editing helpers
   const openDateEditor = () => {
+    analytics.track("played_date_edit_started");
     const d = new Date(playedDate);
     setEditDate(d);
     setWebDateStr(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`);
@@ -335,6 +349,7 @@ export default function UploadScreen() {
     }
     setPlayedDate(finalDate.toISOString());
     setEditingDate(false);
+    analytics.track("played_date_changed");
   };
 
   const formatDate = (iso: string) => {
@@ -375,7 +390,7 @@ export default function UploadScreen() {
 
       {/* Duplicate warning */}
       <Modal visible={showDuplicateWarning} transparent animationType="fade">
-        <Pressable style={styles.modalOverlay} onPress={() => { setShowDuplicateWarning(false); router.back(); }}>
+        <Pressable style={styles.modalOverlay} onPress={cancelDuplicate}>
           <Pressable style={[styles.modalBox, { backgroundColor: colors.surface, borderColor: colors.cardBorder }]} onPress={(e) => e.stopPropagation()}>
             <Ionicons name="warning-outline" size={32} color="#FFD700" style={{ alignSelf: "center" }} />
             <Text style={[styles.modalTitle, { color: colors.text }]}>Possible Duplicate</Text>
@@ -384,13 +399,13 @@ export default function UploadScreen() {
             </Text>
             <View style={styles.modalBtns}>
               <Pressable
-                onPress={() => { setShowDuplicateWarning(false); router.back(); }}
+                onPress={cancelDuplicate}
                 style={({ pressed }) => [styles.modalCancelBtn, { backgroundColor: colors.surfaceLight }, pressed && { opacity: 0.7 }]}
               >
                 <Text style={[styles.modalCancelText, { color: colors.textSecondary }]}>Cancel</Text>
               </Pressable>
               <Pressable
-                onPress={() => analyzeImage(uri!, photoDate, fileName)}
+                onPress={confirmDuplicate}
                 style={({ pressed }) => [styles.modalConfirmBtn, { backgroundColor: colors.accent }, pressed && { opacity: 0.7 }]}
               >
                 <Text style={[styles.modalConfirmText, { color: colors.background }]}>Upload Anyway</Text>
@@ -421,7 +436,7 @@ export default function UploadScreen() {
               <Ionicons name="alert-circle-outline" size={40} color={colors.danger} />
               <Text style={[styles.errorText, { color: colors.textSecondary }]}>{result.error}</Text>
               <Pressable
-                onPress={() => router.back()}
+                onPress={() => { analytics.track("parse_error_dismissed"); router.back(); }}
                 style={({ pressed }) => [styles.retryBtn, { backgroundColor: colors.surfaceLight }, pressed && { opacity: 0.7 }]}
               >
                 <Text style={[styles.retryText, { color: colors.textSecondary }]}>Go Back</Text>
