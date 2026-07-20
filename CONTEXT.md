@@ -207,6 +207,64 @@ vercel.json             Build command, output dir, /api/\* routing
 - `/api/*` routed to `api/index.ts` (Hono serverless function)  
 - `EXPO_PUBLIC_*` vars must be set in Vercel dashboard and are baked into the build at compile time — **changing them requires a fresh redeploy with no build cache**
 
+### PostHog
+
+- Client-side product analytics via `posthog-react-native`, wrapped in `lib/analytics.ts` (`identify` / `track` / `screen` / `reset`). The wrapper is **null-safe** — every call is a no-op when `EXPO_PUBLIC_POSTHOG_KEY` is unset.  
+- Host defaults to `https://us.i.posthog.com`; override with `EXPO_PUBLIC_POSTHOG_HOST` (set it to `https://eu.i.posthog.com` if the project is in the EU region — a wrong region returns `401` on `/flags/` and silently drops events).  
+- Events fire **browser/app → PostHog directly** (they do not pass through the Hono server, so they never appear in server logs).  
+- The RN SDK batches: it flushes at 20 queued events, every 30s, or on app-background. In local dev with few events, expect a delay before they appear in PostHog's Activity view.  
+- **Local dev + preview use the Non-Prod PostHog project's key; only production uses the prod key.**
+
+#### Event catalog
+
+Naming is `snake_case` `noun_verb`. To add an event, call `analytics.track("name", { props })`; keep names/props consistent with the table below.
+
+| Event | Fires when | Properties |
+| :---- | :---- | :---- |
+| `signed_in` | Auth session becomes active | — |
+| `sign_in_requested` | Magic-link email sent | — |
+| `sign_in_failed` | `signInWithOtp` returns an error | `error` |
+| `signed_out` | Sign Out tapped (before `reset()`) | — |
+| `display_name_set` | Initial display-name setup completed | — |
+| `tab_pressed` | Bottom tab tapped (History/Profile) | `tab` |
+| `add_score_fab_pressed` | Center FAB tapped | `platform` |
+| `add_score_source_selected` | Take Photo / Choose from Library tapped | `source` (`camera`\|`library`) |
+| `add_score_sheet_dismissed` | Add-score action sheet cancelled/overlay | — |
+| `image_permission_denied` | Camera/library permission refused | `source` |
+| `image_pick_canceled` | System picker dismissed with no selection | `source` |
+| `image_selected` | Image chosen from camera/library | `source` |
+| `image_pick_failed` | Picker threw | `source`, `error` |
+| `duplicate_warning_shown` | Same-timestamp score detected pre-parse | — |
+| `duplicate_upload_confirmed` | "Upload Anyway" tapped | — |
+| `duplicate_upload_canceled` | Duplicate warning dismissed | — |
+| `score_parse_started` | Parse request sent to `/api/parse-score` | — |
+| `score_parse_succeeded` | Parse returned a valid result | — |
+| `score_parse_failed` | Parse errored | `error` |
+| `parse_error_dismissed` | "Go Back" tapped on the parse-error screen | — |
+| `score_saved` | Parsed score persisted | — |
+| `score_kept` | "Done" tapped, keeping the saved score | `scoreId` |
+| `score_discarded` | Upload discarded (deletes the saved record) | — |
+| `played_date_edit_started` | Played-date editor opened | — |
+| `played_date_changed` | Played date saved | — |
+| `player_name_edit_started` | A player-name field opened for editing | `location` (`upload`\|`detail`) |
+| `player_names_updated` | A player name label saved | — |
+| `history_sort_opened` | History sort picker opened | — |
+| `history_sort_changed` | History sort option chosen | `sort` |
+| `history_pull_refreshed` | Pull-to-refresh on the history list | `platform` |
+| `card_swiped_open` | Swipe-to-delete reveals the delete action | `platform` |
+| `score_detail_viewed` | History card opened | `source`, `scoreId` |
+| `score_detail_closed` | Score detail back/close tapped | `scoreId` |
+| `score_delete_requested` | Delete initiated (opens confirm) | `via` (`swipe`\|`detail_button`), `scoreId?` |
+| `score_delete_canceled` | Delete confirm dismissed | `source` (`history`\|`detail`), `scoreId?` |
+| `score_deleted` | Delete confirmed and completed | `source`, `scoreId` |
+| `appearance_changed` | Theme changed in Profile | `mode` (`dark`\|`light`\|`system`) |
+| `date_format_changed` | Date format changed in Profile | `format` |
+| `default_sort_changed` | Default sort changed in Profile | `sort` |
+| `display_name_edit_started` | Display-name edit opened in Profile | — |
+| `display_name_changed` | Display name saved in Profile | — |
+
+Plus `analytics.identify(userId, { email, name })` on sign-in, `analytics.screen("/score/:id")` on detail view, and `analytics.reset()` on sign-out.
+
 ---
 
 ## How to Run / Build / Test

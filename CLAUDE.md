@@ -76,7 +76,7 @@ Score Slinger is a mobile \+ web app for logging scores from theme park ride gam
 
 ├── lib/
 
-│   ├── analytics.ts      \# PostHog wrapper — identify/track/screen/reset; null-safe (no-op if EXPO\_PUBLIC\_POSTHOG\_KEY not set)
+│   ├── analytics.ts      \# PostHog wrapper — identify/track/screen/reset; null-safe (no-op if EXPO\_PUBLIC\_POSTHOG\_KEY not set). Full event catalog in CONTEXT.md → External Integrations → PostHog.
 
 │   ├── query-client.ts   \# TanStack Query setup \+ apiRequest helper \+ getApiUrl()
 
