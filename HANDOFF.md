@@ -141,22 +141,25 @@ All require `Authorization: Bearer <supabase_jwt>`.
 
 ---
 
-## What Was Just Done (as of 2026-06-17)
+## What Was Just Done (as of 2026-07-20)
 
-1. **Dependency refresh** — Expo SDK 54 → 56 (React 19.2, RN 0.85), `@hono/node-server` 1 → 2, `zod` 3 → 4, plus a patch/minor sweep. All `npm audit` high-severity findings cleared. Migrated the swipe-to-delete gesture off `PanResponder` onto `react-native-gesture-handler` for React Compiler compatibility. On branch `chore/deps-2026-05` (see PROJECT_STATE.md).  
-2. **Dev-workflow** — added `npm run dev` (runs both servers via `concurrently`); moved the local server port to **5055** (AirPlay binds 5000).  
-3. **Cleanup** — deleted legacy `scripts/build.js`, `server/templates/landing-page.html`, and orphaned `shared/models/chat.ts`.
+1. **Analytics event coverage** (PR #4, merged) — comprehensive PostHog tracking of every user action (~40 events), including mobile gestures tagged with `platform`. Full catalog in `CONTEXT.md → External Integrations → PostHog`. Separate **Non-Prod PostHog project** set up for local/preview.  
+2. **Dependency refresh** (PR #3, merged) — Expo SDK 54 → 56 (React 19.2, RN 0.85), `@hono/node-server` 1 → 2, `zod` 3 → 4, patch/minor sweep. All `npm audit` highs cleared. Swipe-to-delete migrated `PanResponder` → `react-native-gesture-handler`. Dead files removed.  
+3. **Dev-workflow** — `npm run dev` runs both servers via `concurrently`; local server port moved to **5055** (AirPlay binds 5000).
 
-Earlier milestones (still current): the UI redesign (expo-router tab + modal architecture; History / Profile / Upload / Score-detail screens), the `DELETE /api/scores/:id` ownership check, PostHog analytics via `lib/analytics.ts`, and shareable deep-link score URLs.
+Earlier milestones (still current): the UI redesign (expo-router tab + modal architecture; History / Profile / Upload / Score-detail screens), the `DELETE /api/scores/:id` ownership check, and shareable deep-link score URLs.
 
 ---
 
 ## Next Up
 
-- [ ] Smoke-test the `chore/deps-2026-05` branch (auth → upload → score view → magic link), then push + open PR to `main`  
+- [ ] Verify the latest production deploy is live + green on `www.slingers.app` (deps + analytics)  
+- [ ] Optional: clear the 3 remaining `tsc` baseline errors + lint warnings  
+- [ ] Consider a separate Non-Prod Supabase project (local dev currently writes to prod DB)  
 - [ ] Future: profile photo support (avatar circle already in place, shows initials — swap for `<Image>`)  
 - [ ] Future: email/password as second auth method in `components/AuthScreen.tsx`  
-- [ ] Future: per-user score filtering via RLS on `scores` table
+- [ ] Future: per-user score filtering via RLS on `scores` table  
+- [ ] Future: observability / error tracking (e.g. Sentry)
 
 ---
 

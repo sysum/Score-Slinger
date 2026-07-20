@@ -1,38 +1,32 @@
 # Score Slinger — Project State
 
-Last updated: 2026-06-17
+Last updated: 2026-07-20
 
 ---
 
 ## Current Goal
 
-Dependency modernization. The app is healthy and in production; the active work is a staged dependency refresh on branch `chore/deps-2026-05` (not yet merged). The UI redesign that this doc previously tracked has long since shipped to `main` (PR #2).
+No major initiative in flight. The app is healthy and in production; the dependency refresh and the analytics build-out have both shipped to `main`. Remaining work is backlog/maintenance (see Next Steps).
 
 ---
 
 ## In Progress
 
-### Dependency refresh — branch `chore/deps-2026-05` (unpushed)
-
-Ten commits, one logical unit per commit so any can be reverted independently:
-
-- **Phase 0** — removed unused deps (`http-proxy-middleware`, `p-retry`, `p-limit`, `zod-validation-error`)  
-- **Phase 1** — `npm audit fix` (cleared all 4 high-severity findings)  
-- **Phase 2** — non-Expo patch/minor sweep (`@supabase/supabase-js`, `@tanstack/react-query`, `hono`, `openai`, `posthog-react-native`, react-compiler GA)  
-- **Phase 3** — Expo SDK 54 → 55; removed the obsolete `expo-asset` patch  
-- **Phase 4** — Expo SDK 55 → 56 (React 19.2, RN 0.85); React Compiler lint fixes (PanResponder → gesture-handler, useQuery for image URL, `@types/node` for the server build, TabBar type import)  
-- **Phase 5** — `@hono/node-server` 1 → 2, `zod` 3 → 4  
-- Plus: dead-file cleanup, `npm run dev` + port 5055, `.gitignore` tightening, doc refresh
-
-**Deferred (intentionally):** ESLint 9 → 10 and TypeScript 5 → 6 wait on `eslint-config-expo` / Metro typings catching up.
-
-**Remaining audit:** ~13 moderate findings, all the upstream `xcode → uuid` dev-tooling chain (no published fix; `npm audit fix --force` would downgrade Expo — rejected). Dev/build-time only; nothing ships to users.
-
-**Next on this branch:** runtime smoke test, then push + PR to `main`.
+Nothing actively in progress. `main` is clean and deployed.
 
 ---
 
 ## Recently Completed (shipped to `main`)
+
+### Analytics event coverage (PR #4, merged 2026-07-20)
+
+Expanded PostHog from a handful of events to comprehensive coverage of every user action (~40 events, `snake_case noun_verb`, consistent props). Mobile gestures (swipe-to-delete `card_swiped_open`, pull-to-refresh `history_pull_refreshed`) are tagged with `platform`. All flows through the null-safe `lib/analytics.ts`. Full catalog documented in **CONTEXT.md → External Integrations → PostHog**. Also set up a separate **Non-Prod PostHog project** for local/preview so dev events don't pollute production.
+
+### Dependency refresh (PR #3, merged 2026-07-20)
+
+Ten commits, one revertable unit each: Expo SDK 54 → 56 (React 19.2, RN 0.85), `@hono/node-server` 1 → 2, `zod` 3 → 4, patch/minor sweep, and react-compiler GA. All `npm audit` high-severity findings cleared (25 → 13, remaining are the upstream `xcode → uuid` dev-tooling chain — dev/build-time only). Migrated swipe-to-delete off `PanResponder` onto `react-native-gesture-handler` for React Compiler compatibility. Deleted dead files (`scripts/build.js`, `server/templates/landing-page.html`, orphaned `shared/models/chat.ts`). Added `npm run dev` (concurrently); moved local server port to **5055** (AirPlay binds 5000). Un-ignored + refreshed the project docs.
+
+**Deferred (intentionally):** ESLint 9 → 10 and TypeScript 5 → 6 wait on `eslint-config-expo` / Metro typings catching up.
 
 ### UI redesign (PR #2, merged)
 
@@ -146,10 +140,14 @@ The `position: "absolute"` FAB with `left: "50%"` \+ `marginLeft` centering work
 
 ## Next Steps
 
-1. **Smoke-test `chore/deps-2026-05`** — `npm run dev`, verify auth → upload → score view → magic-link deep link work end-to-end  
-2. **Fix any issues** found during testing  
-3. **Push + open PR** to `main` for the dependency refresh  
-4. Future: profile photo support (avatar circle already in place — swap initials for `<Image>`)  
-5. Future: email/password auth as second method in `components/AuthScreen.tsx`  
-6. Future: per-user score filtering via RLS on `scores` table
+Backlog, no active work:
+
+1. **Verify the latest production deploy** — merges to `main` auto-deploy on Vercel; confirm the deps + analytics changes are live and green on `www.slingers.app` (the prod static-export/serverless build path isn't exercised locally).  
+2. **Optional cleanup** — 3 remaining `tsc` baseline errors (`TabBar` `href` typing, `analytics.ts` `PostHogEventProperties`, untyped `exif-parser` import) and a few lint warnings.  
+3. **Deferred dep majors** — ESLint 9 → 10, TypeScript 5 → 6 (revisit once `eslint-config-expo` / Metro typings support them).  
+4. **Consider a separate Non-Prod Supabase project** — local dev currently writes to the prod database (mirrors the PostHog Non-Prod split).  
+5. Future: profile photo support (avatar circle already in place — swap initials for `<Image>`)  
+6. Future: email/password auth as second method in `components/AuthScreen.tsx`  
+7. Future: per-user score filtering via RLS on `scores` table  
+8. Future: observability/error tracking (e.g. Sentry) — no APM/error monitoring today
 
