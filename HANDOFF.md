@@ -141,11 +141,12 @@ All require `Authorization: Bearer <supabase_jwt>`.
 
 ---
 
-## What Was Just Done (as of 2026-07-20)
+## What Was Just Done (as of 2026-07-23)
 
-1. **Analytics event coverage** (PR #4, merged) — comprehensive PostHog tracking of every user action (~40 events), including mobile gestures tagged with `platform`. Full catalog in `CONTEXT.md → External Integrations → PostHog`. Separate **Non-Prod PostHog project** set up for local/preview.  
-2. **Dependency refresh** (PR #3, merged) — Expo SDK 54 → 56 (React 19.2, RN 0.85), `@hono/node-server` 1 → 2, `zod` 3 → 4, patch/minor sweep. All `npm audit` highs cleared. Swipe-to-delete migrated `PanResponder` → `react-native-gesture-handler`. Dead files removed.  
-3. **Dev-workflow** — `npm run dev` runs both servers via `concurrently`; local server port moved to **5055** (AirPlay binds 5000).
+1. **App logo** (PR #7, merged) — new logo wired into app icon, favicon, splash, and Android adaptive icon; regenerated full-bleed (light artboard bg → navy `#01051D`) so the OS mask renders cleanly. Master source at `assets/images/score-slinger.png`. Baked at build time — verify on a native/EAS build.  
+2. **tsc + lint cleanup** (PR #6, merged) — 0 tsc errors / 0 lint warnings (a first). Also fixed a real native bug: `expo-file-system`'s `readAsStringAsync`/`EncodingType` moved to `/legacy` in SDK 56 — the native upload path now imports from there (web unaffected; verify on device).  
+3. **Analytics event coverage** (PR #4, merged) — comprehensive PostHog tracking of every user action (~40 events), mobile gestures tagged with `platform`. Catalog in `CONTEXT.md → External Integrations → PostHog`. Separate **Non-Prod PostHog project** for local/preview.  
+4. **Dependency refresh** (PR #3, merged) — Expo SDK 54 → 56 (React 19.2, RN 0.85), `@hono/node-server` 1 → 2, `zod` 3 → 4; all `npm audit` highs cleared. `npm run dev` runs both servers; local server port **5055** (AirPlay binds 5000).
 
 Earlier milestones (still current): the UI redesign (expo-router tab + modal architecture; History / Profile / Upload / Score-detail screens), the `DELETE /api/scores/:id` ownership check, and shareable deep-link score URLs.
 
@@ -153,13 +154,13 @@ Earlier milestones (still current): the UI redesign (expo-router tab + modal arc
 
 ## Next Up
 
-- [ ] Verify the latest production deploy is live + green on `www.slingers.app` (deps + analytics)  
-- [ ] Optional: clear the 3 remaining `tsc` baseline errors + lint warnings  
-- [ ] Consider a separate Non-Prod Supabase project (local dev currently writes to prod DB)  
+- [ ] Native build verification — app icons/splash (#7) + native-upload fix (#6), both baked at build time  
+- [ ] Separate Non-Prod Supabase project (local dev currently writes to the prod DB) — highest-value  
+- [ ] Observability / error tracking (e.g. Sentry)  
+- [ ] Deferred dep majors: ESLint 9 → 10, TypeScript 5 → 6 (await tooling support)  
 - [ ] Future: profile photo support (avatar circle already in place, shows initials — swap for `<Image>`)  
 - [ ] Future: email/password as second auth method in `components/AuthScreen.tsx`  
-- [ ] Future: per-user score filtering via RLS on `scores` table  
-- [ ] Future: observability / error tracking (e.g. Sentry)
+- [ ] Future: per-user score filtering via RLS on `scores` table
 
 ---
 

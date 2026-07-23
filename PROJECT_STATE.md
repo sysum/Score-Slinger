@@ -1,12 +1,12 @@
 # Score Slinger — Project State
 
-Last updated: 2026-07-20
+Last updated: 2026-07-23
 
 ---
 
 ## Current Goal
 
-No major initiative in flight. The app is healthy and in production; the dependency refresh and the analytics build-out have both shipped to `main`. Remaining work is backlog/maintenance (see Next Steps).
+No major initiative in flight. The app is healthy and in production; the dependency refresh, analytics build-out, tsc/lint cleanup, and new app logo have all shipped to `main`. Remaining work is backlog/maintenance (see Next Steps).
 
 ---
 
@@ -17,6 +17,14 @@ Nothing actively in progress. `main` is clean and deployed.
 ---
 
 ## Recently Completed (shipped to `main`)
+
+### App logo (PR #7, merged 2026-07-23)
+
+New Score Slinger logo (teal "S"/arrow with hanging spider + red trajectory burst on dark navy) wired into every icon slot: app icon, browser favicon, splash, and Android adaptive icon. The source had a light artboard background around a rounded-dark-square; regenerated **full-bleed** with the light bg replaced by the logo's own navy (`#01051D`) so the OS rounded-mask renders cleanly. Master source kept at `assets/images/score-slinger.png`. **Note:** icons are baked at build time — verify on a native/EAS build, not the dev server.
+
+### tsc + lint cleanup (PR #6, merged 2026-07-23)
+
+Project now type-checks and lints spotless (0 tsc errors, 0 lint warnings — a first). Cleared the 3 tsc baseline errors (`TabBar` `href` cast, `analytics.ts` prop-type cast, new `types/exif-parser.d.ts` shim) and all lint warnings. **Also fixed a real native bug surfaced by the cleanup:** the native image-upload path used `expo-file-system`'s `readAsStringAsync`/`EncodingType`, which SDK 56 moved to the `/legacy` subpath — switched to `await import("expo-file-system/legacy")`. Web was never affected (it uses a separate `fetch`/`blob` path), so this only manifests on native — **verify on a device build.**
 
 ### Analytics event coverage (PR #4, merged 2026-07-20)
 
@@ -142,12 +150,11 @@ The `position: "absolute"` FAB with `left: "50%"` \+ `marginLeft` centering work
 
 Backlog, no active work:
 
-1. **Verify the latest production deploy** — merges to `main` auto-deploy on Vercel; confirm the deps + analytics changes are live and green on `www.slingers.app` (the prod static-export/serverless build path isn't exercised locally).  
-2. **Optional cleanup** — 3 remaining `tsc` baseline errors (`TabBar` `href` typing, `analytics.ts` `PostHogEventProperties`, untyped `exif-parser` import) and a few lint warnings.  
-3. **Deferred dep majors** — ESLint 9 → 10, TypeScript 5 → 6 (revisit once `eslint-config-expo` / Metro typings support them).  
-4. **Consider a separate Non-Prod Supabase project** — local dev currently writes to the prod database (mirrors the PostHog Non-Prod split).  
+1. **Native build verification** — the app icons/splash (PR #7) and the `expo-file-system/legacy` native-upload fix (PR #6) are both baked at build time and unverified on device. Confirm on a native/EAS build (or `expo run:ios`/`run:android`): home-screen icon, splash, and a native image upload.  
+2. **Separate Non-Prod Supabase project** — local dev currently writes to the **prod database** (mirrors the PostHog Non-Prod split). Highest-value item — removes real risk of dev polluting prod data.  
+3. **Observability / error tracking** — no APM or error monitoring today (e.g. Sentry — first-class Expo + Vercel SDKs).  
+4. **Deferred dep majors** — ESLint 9 → 10, TypeScript 5 → 6 (revisit once `eslint-config-expo` / Metro typings support them).  
 5. Future: profile photo support (avatar circle already in place — swap initials for `<Image>`)  
 6. Future: email/password auth as second method in `components/AuthScreen.tsx`  
-7. Future: per-user score filtering via RLS on `scores` table  
-8. Future: observability/error tracking (e.g. Sentry) — no APM/error monitoring today
+7. Future: per-user score filtering via RLS on `scores` table
 
