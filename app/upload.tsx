@@ -64,7 +64,7 @@ interface Score {
   achievement: string | null;
   gameName: string;
   objectiveScores: { fightGiantBot: number; rescueSpiderMan: number; destroyGiantBot: number } | null;
-  players: Array<{ name: string; score: number; color: string }>;
+  players: { name: string; score: number; color: string }[];
   playerNames: Record<string, string> | null;
   imagePath: string | null;
   playedDate: string | null;
@@ -103,7 +103,7 @@ function PlayerCard({
 
   useEffect(() => {
     progress.value = withSpring(1, { damping: 15, stiffness: 90 });
-  }, []);
+  }, [progress]);
 
   const maxScore = Math.max(...allScores);
   const barStyle = useAnimatedStyle(() => ({
@@ -228,7 +228,10 @@ export default function UploadScreen() {
         const { error } = await supabase.storage.from("scores").upload(storagePath, blob, { contentType });
         if (error) uploadError = error;
       } else {
-        const ExpoFS = require("expo-file-system");
+        // Native only: lazy-load the legacy FS API. In Expo SDK 56 the main
+        // expo-file-system entry dropped readAsStringAsync/EncodingType — they
+        // now live under the /legacy subpath. Dynamic import keeps it off web.
+        const ExpoFS = await import("expo-file-system/legacy");
         const base64 = await ExpoFS.readAsStringAsync(imageUri, { encoding: ExpoFS.EncodingType.Base64 });
         const binaryStr = atob(base64);
         const bytes = new Uint8Array(binaryStr.length);

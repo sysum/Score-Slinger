@@ -44,7 +44,7 @@ interface Score {
     rescueSpiderMan: number;
     destroyGiantBot: number;
   } | null;
-  players: Array<{ name: string; score: number; color: string }>;
+  players: { name: string; score: number; color: string }[];
   playerNames: Record<string, string> | null;
   imagePath: string | null;
   playedDate: string | null;
@@ -85,7 +85,7 @@ function PlayerCard({
 
   useEffect(() => {
     progress.value = withSpring(1, { damping: 15, stiffness: 90 });
-  }, []);
+  }, [progress]);
 
   const maxScore = Math.max(...allScores, 1);
   const barStyle = useAnimatedStyle(() => ({

@@ -11,7 +11,9 @@ export const analytics = {
     posthog?.identify(userId, props);
   },
   track(event: string, props?: Record<string, unknown>) {
-    posthog?.capture(event, props);
+    // PostHog types properties as JsonType-valued; our callers pass plain
+    // values. Cast to capture()'s own props type (derived, so it stays in sync).
+    posthog?.capture(event, props as Parameters<NonNullable<typeof posthog>["capture"]>[1]);
   },
   screen(name: string) {
     posthog?.screen(name);
