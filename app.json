@@ -11,7 +11,7 @@
     "splash": {
       "image": "./assets/images/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#0A0E1A"
+      "backgroundColor": "#01051D"
     },
     "ios": {
       "supportsTablet": false,
@@ -20,10 +20,8 @@
     "android": {
       "package": "com.scoreslinger.app",
       "adaptiveIcon": {
-        "backgroundColor": "#0A0E1A",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "backgroundColor": "#01051D",
+        "foregroundImage": "./assets/images/adaptive-icon.png"
       }
     },
     "web": {
