@@ -135,8 +135,9 @@ export default function TabBar({ state, descriptors, navigation }: BottomTabBarP
   };
 
   const tabs = state.routes.filter((route) => {
+    // `href` is an expo-router extension to the tab options, not in the base type.
     const { options } = descriptors[route.key];
-    return options.href !== null;
+    return (options as { href?: string | null }).href !== null;
   });
 
   return (
@@ -244,7 +245,6 @@ function TabButton({
   navigation: BottomTabBarProps["navigation"];
   colors: ReturnType<typeof useTheme>["colors"];
 }) {
-  const { options } = descriptors[route.key];
   const isFocused = state.index === state.routes.indexOf(route);
 
   const tabName = route.name === "index" ? "history" : "profile";
