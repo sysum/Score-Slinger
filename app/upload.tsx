@@ -30,6 +30,7 @@ import Animated, {
 } from "react-native-reanimated";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { useTheme } from "@/contexts/ThemeContext";
+import { useToast } from "@/contexts/ToastContext";
 import { apiRequest, ApiError, isCapturedApiError } from "@/lib/query-client";
 import { supabase } from "@/lib/supabase";
 import { analytics } from "@/lib/analytics";
@@ -78,6 +79,35 @@ interface Score {
 const PLAYER_COLOR_ORDER = ["blue", "red", "yellow", "purple"];
 
 const DATE_SAVE_ERROR_MESSAGE = "Couldn't save the date — check your connection and try again.";
+const NAME_SAVE_ERROR_MESSAGE = "Couldn't save the name — check your connection and try again.";
+const DISCARD_ERROR_MESSAGE = "Couldn't discard — check your connection and try again.";
+
+// Web image URIs are `blob:` URLs with no extension (splitting on "." used to
+// yield e.g. "app/<uuid>"), so on web the extension comes from the blob's MIME
+// type, then the picker's file name, then "jpg".
+const MIME_EXT: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/jpg": "jpg",
+  "image/png": "png",
+  "image/heic": "heic",
+  "image/heif": "heic",
+};
+
+function extFromName(name?: string | null): string | null {
+  const match = name?.split("?")[0].match(/\.([a-z0-9]+)$/i);
+  return match ? match[1].toLowerCase() : null;
+}
+
+// Haptics are cosmetic: a failure (e.g. an unsupported device) must never fail
+// the flow, so it's fire-and-forget with both sync and async errors swallowed.
+function successHaptic() {
+  if (Platform.OS === "web") return;
+  try {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+  } catch {
+    // ignore
+  }
+}
 
 // Flat, breakdown-friendly gameplay props for score_saved (no nested arrays).
 function gameplayProps(data: ParsedResult) {
@@ -196,6 +226,7 @@ export default function UploadScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const queryClient = useQueryClient();
+  const { showToast } = useToast();
 
   const [loading, setLoading] = useState(true);
   const [result, setResult] = useState<ParsedResult | null>(null);
@@ -213,6 +244,14 @@ export default function UploadScreen() {
   // Analytics: set once a played-date edit is saved (score_kept / score_discarded).
   const dateEditedRef = useRef(false);
   const [showDuplicateWarning, setShowDuplicateWarning] = useState(false);
+  const [discarding, setDiscarding] = useState(false);
+  const [discardError, setDiscardError] = useState<string | null>(null);
+  // Ref guard: a double-tap (or X + Discard) could otherwise send two DELETEs.
+  const discardingRef = useRef(false);
+  const scrollRef = useRef<ScrollView>(null);
+  // Set while analyzeImage runs; calling it abandons the analysis (X tapped or
+  // the screen unmounted mid-analysis). Cleared once the analysis settles.
+  const cancelAnalysisRef = useRef<(() => void) | null>(null);
   const displayNameRef = useRef<string>("");
 
   const { data: scores = [] } = useQuery<Score[]>({ queryKey: ["/api/scores"] });
@@ -222,6 +261,9 @@ export default function UploadScreen() {
       displayNameRef.current = n ?? "Anonymous";
     });
   }, []);
+
+  // Leaving mid-analysis (e.g. iOS swipe-down, Android back) also cancels it.
+  useEffect(() => () => cancelAnalysisRef.current?.(), []);
 
   // Intentional on-mount kickoff: check for duplicates, otherwise begin analysis.
   /* eslint-disable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
@@ -264,10 +306,37 @@ export default function UploadScreen() {
         throw err;
       });
 
+    // Cancellation (X / unmount mid-analysis). Checked after every await: once
+    // set, no further request is started, no flow event fires and no state is
+    // set (the screen may be gone). `upload_canceled` is the only event.
+    let canceled = false;
+    const cancel = () => {
+      canceled = true;
+      cancelAnalysisRef.current = null;
+      analytics.track("upload_canceled", { stage });
+    };
+    // Set once the auto-save request succeeds: from then on the score exists,
+    // so no later error may show the failure screen.
+    let savedResult: ParsedResult | null = null;
+    cancelAnalysisRef.current = cancel;
+
     try {
-      ext = imageUri.split(".").pop()?.split("?")[0]?.toLowerCase() || "jpg";
+      // Web: read the blob first, since its MIME type gives the extension and
+      // HEIC must be rejected before the upload.
+      let blob: Blob | null = null;
+      if (Platform.OS === "web") {
+        const response = await globalThis.fetch(imageUri);
+        blob = await response.blob();
+        byteCount = blob.size;
+        ext = MIME_EXT[blob.type.toLowerCase()] ?? extFromName(file) ?? "jpg";
+      } else {
+        ext = imageUri.split(".").pop()?.split("?")[0]?.toLowerCase() || "jpg";
+      }
+      if (canceled) return;
 
       if (Platform.OS === "web" && (ext === "heic" || ext === "heif")) {
+        // Not a user cancel: unregister so the unmount doesn't report one.
+        cancelAnalysisRef.current = null;
         Alert.alert("Unsupported format", "HEIC files aren't supported on web. Please convert to JPEG or PNG first.");
         router.back();
         return;
@@ -279,10 +348,7 @@ export default function UploadScreen() {
       // Upload to Supabase Storage
       analytics.track("image_upload_started", { ext, source });
       let uploadError: Error | null = null;
-      if (Platform.OS === "web") {
-        const response = await globalThis.fetch(imageUri);
-        const blob = await response.blob();
-        byteCount = blob.size;
+      if (blob) {
         const { error } = await supabase.storage.from("scores").upload(storagePath, blob, { contentType });
         if (error) uploadError = error;
       } else {
@@ -299,6 +365,10 @@ export default function UploadScreen() {
         if (error) uploadError = error;
       }
 
+      // Canceled before the save: no record to delete. The uploaded image is
+      // left behind; the client has no Storage delete policy, so it can't
+      // remove the object itself (only DELETE /api/scores/:id cleans images).
+      if (canceled) return;
       if (uploadError) throw uploadError;
       analytics.track("image_upload_succeeded", { ext, bytes: byteCount, source });
 
@@ -308,6 +378,7 @@ export default function UploadScreen() {
       const parseStartedAt = Date.now();
       const res = await request("POST", "/api/parse-score", { imagePath: storagePath });
       const data: ParsedResult = await res.json();
+      if (canceled) return;
 
       if (data.error) {
         analytics.track("score_parse_failed", { stage, status: null, error: data.error });
@@ -347,28 +418,76 @@ export default function UploadScreen() {
           imagePath: storagePath,
           playedDate: effectiveDate,
         });
-        const newScore = await saveRes.json();
-        setSavedId(newScore.id);
-        queryClient.invalidateQueries({ queryKey: ["/api/scores"] });
-        const ageDays = (Date.now() - new Date(effectiveDate).getTime()) / 86_400_000;
-        // Saved before the user keeps or discards it: see score_discarded.
-        analytics.track("score_saved", {
-          score_id: newScore.id,
-          source,
-          played_date_source: playedDateSource,
-          played_date_age_days: Number.isFinite(ageDays) ? Math.floor(ageDays) : null,
-          duplicate_overridden: duplicateOverridden,
-          history_size: cachedCount !== undefined ? cachedCount + 1 : null,
-          ...gameplayProps(data),
-        });
+        // 2xx: the score is saved. Everything below is post-save work whose
+        // errors are captured, never shown as an analysis failure.
+        savedResult = data;
+        let newScoreId: string | null = null;
+        try {
+          const newScore = await saveRes.json();
+          if (typeof newScore?.id === "string") newScoreId = newScore.id;
+        } catch (err) {
+          analytics.captureException(err, { context: "post_save", step: "read_response" });
+        }
+        if (!newScoreId) {
+          // Unreadable save response: recover the id from a fresh history fetch
+          // (storage paths are unique), so Discard and edits still work.
+          try {
+            await queryClient.refetchQueries({ queryKey: ["/api/scores"] });
+            newScoreId =
+              queryClient.getQueryData<Score[]>(["/api/scores"])?.find((s) => s.imagePath === storagePath)?.id ?? null;
+          } catch (err) {
+            analytics.captureException(err, { context: "post_save", step: "recover_id" });
+          }
+        }
+
+        if (canceled) {
+          // Canceled while the save was in flight: delete the new record (the
+          // server also removes its image). Best-effort; a 404 means it's gone.
+          if (newScoreId) {
+            try {
+              await apiRequest("DELETE", `/api/scores/${newScoreId}`);
+            } catch (err) {
+              if (!(err instanceof ApiError && err.status === 404) && !isCapturedApiError(err)) {
+                analytics.captureException(err, { context: "upload_cancel_cleanup", score_id: newScoreId });
+              }
+            }
+          }
+          queryClient.invalidateQueries({ queryKey: ["/api/scores"] });
+          return;
+        }
+
+        try {
+          if (newScoreId) setSavedId(newScoreId);
+          queryClient.invalidateQueries({ queryKey: ["/api/scores"] });
+          const ageDays = (Date.now() - new Date(effectiveDate).getTime()) / 86_400_000;
+          // Saved before the user keeps or discards it: see score_discarded.
+          analytics.track("score_saved", {
+            score_id: newScoreId,
+            source,
+            played_date_source: playedDateSource,
+            played_date_age_days: Number.isFinite(ageDays) ? Math.floor(ageDays) : null,
+            duplicate_overridden: duplicateOverridden,
+            history_size: cachedCount !== undefined ? cachedCount + 1 : null,
+            ...gameplayProps(data),
+          });
+        } catch (err) {
+          analytics.captureException(err, { context: "post_save" });
+        }
         setResult(data);
       }
 
-      if (Platform.OS !== "web") {
-        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      }
+      successHaptic();
     } catch (err) {
+      // Abandoned by the user: nothing to show or report.
+      if (canceled) return;
       console.error("Analysis error:", err);
+      if (savedResult) {
+        // Backstop: post-save work is wrapped above, but a score that exists
+        // must never be reported as "Failed to analyze image".
+        analytics.captureException(err, { context: "post_save" });
+        setResult(savedResult);
+        return;
+      }
       if (stage === "upload") {
         analytics.track("image_upload_failed", { ext, bytes: byteCount, source, error: String(err) });
       } else {
@@ -386,11 +505,13 @@ export default function UploadScreen() {
       }
       setResult({ teamScore: 0, gameName: "Unknown", players: [], error: "Failed to analyze image. Please try again." });
     } finally {
-      setLoading(false);
+      if (cancelAnalysisRef.current === cancel) cancelAnalysisRef.current = null;
+      if (!canceled) setLoading(false);
     }
   };
 
   const updatePlayerName = async (color: string, name: string) => {
+    const previous = playerNames[color];
     const updated = { ...playerNames, [color]: name || undefined } as Record<string, string>;
     if (!name) delete updated[color];
     setPlayerNames(updated);
@@ -402,8 +523,20 @@ export default function UploadScreen() {
         queryClient.invalidateQueries({ queryKey: ["/api/scores"] });
         analytics.track("player_names_updated", { location: "upload", score_id: savedId, color });
       } catch (err) {
-        // Silent in the UI (the local label is kept), so report it.
-        if (!isCapturedApiError(err)) {
+        // Revert this color's label (unless it was edited again meanwhile).
+        setPlayerNames((current) => {
+          if (current[color] !== updated[color]) return current;
+          const reverted = { ...current };
+          if (previous) reverted[color] = previous;
+          else delete reverted[color];
+          return reverted;
+        });
+        showToast(NAME_SAVE_ERROR_MESSAGE, { type: "error" });
+        const status = err instanceof ApiError ? err.status : null;
+        analytics.track("player_names_update_failed", { location: "upload", score_id: savedId, status });
+        // HTTP errors are covered by api_request_failed; send the stack trace
+        // only for non-HTTP ones (network or unexpected).
+        if (status === null) {
           analytics.captureException(err, { context: "player_names_update", location: "upload", score_id: savedId });
         }
       }
@@ -418,23 +551,46 @@ export default function UploadScreen() {
     date_edited: dateEditedRef.current,
   });
 
+  // X / Discard. Mid-analysis: cancels it. With a saved score: deletes it,
+  // keeping the screen open (spinner) until the DELETE settles; on failure it
+  // shows an inline error so the user can retry, or keep it with Done.
   const handleDiscard = async () => {
+    if (cancelAnalysisRef.current) {
+      cancelAnalysisRef.current();
+      router.back();
+      return;
+    }
     if (savedId) {
+      if (discardingRef.current) return;
+      discardingRef.current = true;
+      setDiscarding(true);
+      setDiscardError(null);
       try {
         await apiRequest("DELETE", `/api/scores/${savedId}`);
-        queryClient.invalidateQueries({ queryKey: ["/api/scores"] });
-        analytics.track("score_discarded", outcomeProps());
       } catch (err) {
-        // Silent in the UI (the modal closes anyway and the score stays saved).
-        if (!isCapturedApiError(err)) {
-          analytics.captureException(err, { context: "score_discard", score_id: savedId });
+        // A 404 counts as success: the score is already gone.
+        if (!(err instanceof ApiError && err.status === 404)) {
+          analytics.track("score_discard_failed", {
+            score_id: savedId,
+            status: err instanceof ApiError ? err.status : null,
+            error: err instanceof Error ? err.message : String(err),
+          });
+          setDiscardError(DISCARD_ERROR_MESSAGE);
+          setDiscarding(false);
+          discardingRef.current = false;
+          // The error sits by the Discard button; X is at the top.
+          scrollRef.current?.scrollToEnd({ animated: true });
+          return;
         }
       }
+      queryClient.invalidateQueries({ queryKey: ["/api/scores"] });
+      analytics.track("score_discarded", outcomeProps());
     }
     router.back();
   };
 
   const handleDone = () => {
+    if (discardingRef.current) return;
     analytics.track("score_kept", outcomeProps());
     router.back();
   };
@@ -531,7 +687,8 @@ export default function UploadScreen() {
       <View style={[styles.header, { paddingTop: insets.top + webTop, borderBottomColor: colors.cardBorder }]}>
         <Pressable
           onPress={handleDiscard}
-          style={({ pressed }) => [styles.headerBtn, pressed && { opacity: 0.6 }]}
+          disabled={discarding}
+          style={({ pressed }) => [styles.headerBtn, pressed && { opacity: 0.6 }, discarding && { opacity: 0.5 }]}
         >
           <Ionicons name="close" size={24} color={colors.textSecondary} />
         </Pressable>
@@ -541,7 +698,13 @@ export default function UploadScreen() {
         {!loading && result && !result.error ? (
           <Pressable
             onPress={handleDone}
-            style={({ pressed }) => [styles.doneBtn, { backgroundColor: colors.accentDim }, pressed && { opacity: 0.7 }]}
+            disabled={discarding}
+            style={({ pressed }) => [
+              styles.doneBtn,
+              { backgroundColor: colors.accentDim },
+              pressed && { opacity: 0.7 },
+              discarding && { opacity: 0.5 },
+            ]}
           >
             <Text style={[styles.doneBtnText, { color: colors.accent }]}>Done</Text>
           </Pressable>
@@ -589,6 +752,7 @@ export default function UploadScreen() {
       {/* Result */}
       {!loading && result && (
         <ScrollView
+          ref={scrollRef}
           style={{ flex: 1 }}
           contentContainerStyle={[styles.resultContent, { paddingBottom: insets.bottom + 40 }]}
           showsVerticalScrollIndicator={false}
@@ -692,14 +856,37 @@ export default function UploadScreen() {
                   ))}
               </View>
 
-              {/* Discard button */}
-              <Pressable
-                onPress={handleDiscard}
-                style={({ pressed }) => [styles.discardBtn, { borderColor: colors.danger }, pressed && { opacity: 0.7 }]}
-              >
-                <Ionicons name="trash-outline" size={16} color={colors.danger} />
-                <Text style={[styles.discardText, { color: colors.danger }]}>Discard This Score</Text>
-              </Pressable>
+              {/* Discard button (hidden if the saved score's id is unknown — nothing to delete) */}
+              {savedId ? (
+                <>
+                  {discardError ? (
+                    <View style={styles.modalError} accessibilityRole="alert" accessibilityLiveRegion="polite">
+                      <Ionicons name="alert-circle" size={16} color={colors.danger} />
+                      <Text style={[styles.modalErrorText, { color: colors.danger }]}>{discardError}</Text>
+                    </View>
+                  ) : null}
+                  <Pressable
+                    onPress={handleDiscard}
+                    disabled={discarding}
+                    accessibilityState={{ busy: discarding, disabled: discarding }}
+                    style={({ pressed }) => [
+                      styles.discardBtn,
+                      { borderColor: colors.danger },
+                      pressed && { opacity: 0.7 },
+                      discarding && { opacity: 0.8 },
+                    ]}
+                  >
+                    {discarding ? (
+                      <ActivityIndicator size="small" color={colors.danger} />
+                    ) : (
+                      <Ionicons name="trash-outline" size={16} color={colors.danger} />
+                    )}
+                    <Text style={[styles.discardText, { color: colors.danger }]}>
+                      {discarding ? "Discarding…" : "Discard This Score"}
+                    </Text>
+                  </Pressable>
+                </>
+              ) : null}
             </>
           )}
         </ScrollView>

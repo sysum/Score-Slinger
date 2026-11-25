@@ -128,7 +128,7 @@ All routes require `Authorization: Bearer <supabase_jwt>` — protected by `requ
 | PATCH | `/api/scores/:id/player-names` | Updates custom player name labels |
 | PATCH | `/api/scores/:id/played-date` | Updates the played date — `{ playedDate }`, stored as an ISO string; 400 if unparseable; owner only (403 otherwise, 404 if missing) |
 | GET | `/api/scores/:id/image-url` | Generates a 60-second signed URL for a score's private image |
-| DELETE | `/api/scores/:id` | Deletes a score record |
+| DELETE | `/api/scores/:id` | Deletes a score record (owner only), then best-effort removes its image from Storage |
 
 ---
 
@@ -315,7 +315,7 @@ Local auth is configured in `supabase/config.toml` instead: invite-only (`enable
 - [ ] Future: profile photo support (avatar circle in Profile tab is ready — currently shows initials)  
 - [ ] Known risk: Vercel preview deployments still point at the **prod** Supabase project (local can't serve them) — options: a cloud non-prod project, or Supabase Branching  
 - [ ] Follow-up: test native devices (simulator/emulator/phone) against the local Supabase stack  
-- [ ] Follow-up: clean up orphaned images in prod storage (33 objects in `scores` vs 5 rows, from discarded uploads)  
+- [ ] Follow-up: clean up orphaned images in prod storage (33 objects in `scores` vs 5 rows, from discarded uploads). New deletes/discards now remove their image (`fix/upload-flow-bugs`); a cancel before the auto-save still orphans its upload (no client Storage delete policy)  
 - [ ] Follow-up: upgrade Supabase CLI to v3 (currently 2.117.0)
 
 Recently done: local Supabase dev workflow (CLI \+ Docker, `npm run db:*`, schema in `supabase/migrations/` mirroring prod, seed user `dev@local.test`, prod env kept in `.env.prod-reference`) — local dev no longer writes to prod. Earlier: dependency refresh to Expo SDK 56 (from 54), all `npm audit` highs cleared; removed legacy `scripts/build.js`, `server/templates/landing-page.html`, and orphaned `shared/models/chat.ts`; added `npm run dev`; moved local server port to 5055.
