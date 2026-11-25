@@ -255,7 +255,7 @@ vercel.json             Build command, output dir, /api/\* routing
 ### Vercel
 
 - Production URL: `https://www.slingers.app`  
-- Static web export (`npx expo export --platform web`) served from `dist/`. The `vercel.json` build command prefixes it with `EXPO_PUBLIC_VERCEL_ENV=$VERCEL_ENV EXPO_PUBLIC_COMMIT_SHA=$VERCEL_GIT_COMMIT_SHA` so the PostHog `environment` / `commit` super props get baked in (Vercel system vars aren't `EXPO_PUBLIC_*`, so Expo wouldn't inline them otherwise)  
+- Static web export served from `dist/`. `vercel.json`'s build command is `npm run build:web`, which: (1) runs `npx expo export --platform web --source-maps` prefixed with `EXPO_PUBLIC_VERCEL_ENV=$VERCEL_ENV EXPO_PUBLIC_COMMIT_SHA=$VERCEL_GIT_COMMIT_SHA` so PostHog's `environment` / `commit` and Sentry's `environment` / `release` get baked in (Vercel system vars aren't `EXPO_PUBLIC_*`, so Expo wouldn't inline them otherwise); (2) uploads the bundles + maps to Sentry (`score-slinger-web`) with the pinned `expo-upload-sourcemaps` bin when `SENTRY_AUTH_TOKEN` is set (skipped otherwise; a failed upload only logs a warning); (3) **always** deletes every `.map` from `dist/`, so source maps are never served. Expo stamps each chunk with a Debug ID (`//# debugId=` in the `.js`, `debugId` in the `.map`), which is how Sentry pairs events with maps; no release matching needed. Details: `docs/SENTRY_PLAN.md` → Phase 3  
 - `/api/*` routed to `api/index.ts` (Hono serverless function)  
 - `EXPO_PUBLIC_*` vars must be set in Vercel dashboard and are baked into the build at compile time — **changing them requires a fresh redeploy with no build cache**
 
@@ -359,7 +359,7 @@ SDK / automatic events (not from `track()`):
 
 ### Observability (Sentry)
 
-Plan and phases: `docs/SENTRY_PLAN.md`. **Phase 1 (server) is live; Phase 2 (client SDK) is implemented**; source maps (Phase 3) and optional replay (Phase 4) follow.
+Plan and phases: `docs/SENTRY_PLAN.md`. **Phase 1 (server) is live; Phase 2 (client SDK) and Phase 3 (source maps, see Vercel above) are implemented**; optional replay (Phase 4) needs a decision.
 
 - **Split:** PostHog = product analytics (client, what users do; the client `*_failed` events stay, now with `request_id`). Sentry = engineering telemetry (errors, traces, structured logs) in two projects: `score-slinger-api` (server) and `score-slinger-web` (client). Since Phase 2, **every exception goes to Sentry only**: PostHog exception autocapture is off and `analytics.captureException` no longer exists.
 - **Why:** Vercel Hobby keeps runtime logs for 1 hour. Sentry keeps the per-request access log, parse results and errors for its retention window, on the $0 free plan.
@@ -454,6 +454,12 @@ ALLOWED\_ORIGINS=https://www.slingers.app,https://slingers.app
 SENTRY\_DSN=                          \# score-slinger-api project DSN — Production + Preview (server-only; leave unset locally)
 
 EXPO\_PUBLIC\_SENTRY\_DSN=             \# score-slinger-web project DSN — Production + Preview (baked into the bundle; redeploy without build cache after changing)
+
+SENTRY\_AUTH\_TOKEN=                   \# Sensitive; build-time only, source-map upload. Unset = upload skipped
+
+SENTRY\_ORG=team-beam                 \# source-map upload
+
+SENTRY\_PROJECT=score-slinger-web     \# source-map upload
 
 ### Database setup
 

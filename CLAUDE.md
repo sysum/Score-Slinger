@@ -244,7 +244,9 @@ SENTRY\_DSN=                \# score-slinger-api DSN — server-only here; set i
 
 EXPO\_PUBLIC\_SENTRY\_DSN=    \# score-slinger-web DSN — client-safe, baked into the bundle; set in Vercel (Production \+ Preview), unset locally = Sentry.init never runs
 
-                           \# Coming in Sentry Phase 3: SENTRY\_AUTH\_TOKEN, SENTRY\_ORG, SENTRY\_PROJECT
+SENTRY\_AUTH\_TOKEN=         \# Vercel build only (Sensitive) — source-map upload in `npm run build:web`; unset = skipped
+
+SENTRY\_ORG= / SENTRY\_PROJECT= \# team-beam / score-slinger-web — Vercel build only
 
 EXPO\_PUBLIC\_POSTHOG\_DEBUG= \# "true" enables PostHog SDK debug logging
 
@@ -289,7 +291,7 @@ The local server port is **5055** (not 5000 — macOS AirPlay Receiver binds 500
 ## Deployment (Vercel)
 
 - Production URL: `https://www.slingers.app`  
-- `vercel.json` runs `npx expo export --platform web`, serves `dist/`, routes `/api/*` to Hono  
+- `vercel.json` runs `npm run build:web` (`expo export --platform web --source-maps` → Sentry source-map upload if `SENTRY_AUTH_TOKEN` is set → **always** deletes `dist/**/*.map`), serves `dist/`, routes `/api/*` to Hono  
 - `EXPO_PUBLIC_*` vars are baked into the static build — changing them requires a fresh redeploy with **no build cache**  
 - `EXPO_PUBLIC_DOMAIN` must match the domain users browse to (same-origin avoids CORS entirely)  
 - `ALLOWED_ORIGINS` set to `https://www.slingers.app,https://slingers.app`  

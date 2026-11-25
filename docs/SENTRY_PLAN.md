@@ -1,6 +1,6 @@
 # Sentry plan
 
-Status as of 2026-11-25: **Phase 0 and Phase 1 (server) done**: merged as PR #19 and verified in production (logs, traces and errors reach `score-slinger-api` in org `team-beam`). **Phase 2 (client) implemented** on `feat/sentry-client`, awaiting `EXPO_PUBLIC_SENTRY_DSN` in Vercel and a preview check. Phase 4 is not started.
+Status as of 2026-11-25: **Phase 0 and Phase 1 (server) done**: merged as PR #19 and verified in production (logs, traces and errors reach `score-slinger-api` in org `team-beam`). **Phases 2 (client) and 3 (source maps) implemented** on `feat/sentry-client`, awaiting the Vercel env vars and a preview check. Phase 4 is not started.
 
 ## Why
 
@@ -73,11 +73,24 @@ As implemented (details in CONTEXT.md → Observability):
 - Request ids: `X-Request-Id` on every API request, `ApiError.requestId`, `request_id` on `api_request_failed` / the other `*_failed` events / 5xx Sentry tags.
 - Dashboard (user): in `score-slinger-web` → Settings → Security & Privacy, keep the data scrubbers on and turn on **Prevent Storing of IP Addresses**, as for the api project.
 
-### Phase 3: Source maps
+### Phase 3: Source maps (implemented on `feat/sentry-client`)
+
+Plan as approved:
 
 - Build: `npx expo export --platform web --source-maps`, then `npx @sentry/expo-upload-sourcemaps dist` with `SENTRY_AUTH_TOKEN` (Vercel secret, build-time only), `SENTRY_ORG`, `SENTRY_PROJECT`.
 - Then **delete the `.map` files from `dist/`** in the same Vercel build command so they're never served publicly.
 - Server stack traces are already readable (`api/index.ts` isn't minified), so this is mostly for the web client.
+
+As implemented:
+
+- `vercel.json` `buildCommand` is `npm run build:web`. The script (`package.json`) keeps the `EXPO_PUBLIC_VERCEL_ENV` / `EXPO_PUBLIC_COMMIT_SHA` mapping, runs `expo export --platform web --source-maps`, then `( [ -z "$SENTRY_AUTH_TOKEN" ] && echo skip || expo-upload-sourcemaps dist || echo WARNING ) && find dist -name '*.map' -type f -delete`.
+- `@sentry/expo-upload-sourcemaps` is a pinned devDependency (8.35.0, same release as the SDK), run from `node_modules/.bin`; nothing is fetched with `npx` at build time. It bundles `@sentry/cli` 3.8.2 (Linux binary in the lockfile).
+- **Debug IDs:** Expo's serializer gives each exported chunk a Debug ID derived from its content-hashed filename and writes it as `//# debugId=` in the `.js` and `debugId` in the `.map` (`@expo/metro-config` `serializeChunks.js` / `fork/baseJSBundle.js`). `getSentryExpoConfig` adds a premodule that registers the ID at runtime (`_sentryDebugIds`), so events carry `debug_meta` and Sentry matches frames to the uploaded map. No `release` is needed for matching.
+- **Pairing:** the tool walks `dist/`, groups `foo.js` with `foo.js.map`, copies `debugId` to `debug_id` in the map, and runs `sentry-cli sourcemaps upload foo.js foo.js.map` per pair. `.js` files without a map are skipped.
+- **Org / project / URL:** `SENTRY_ORG` / `SENTRY_PROJECT` from Vercel (`team-beam` / `score-slinger-web`). With `SENTRY_URL` unset the tool runs `expo config --json` and takes `url` from the `@sentry/react-native/expo` plugin entry in `app.json` (default `https://sentry.io/`); that entry also supplies org/project if the env vars are missing.
+- **Maps never ship:** the `find … -delete` runs when the upload succeeds, fails or is skipped (no token). Only a failed `expo export` stops it, and then there's no deploy. The bundles keep their `//# sourceMappingURL=` comment, so DevTools gets a 404 for the map; harmless.
+- **Upload failure doesn't fail the deploy** (logged as a warning). Trade-off: a Sentry outage, expired token or quota issue can't block a release, but that deploy's client stack traces stay minified until the next successful upload. The warning is in the Vercel build log.
+- **User setup:** Vercel env `SENTRY_AUTH_TOKEN` (Sensitive; an org auth token with `project:releases` / source-map upload scope), `SENTRY_ORG=team-beam`, `SENTRY_PROJECT=score-slinger-web`, for Production + Preview.
 
 ### Phase 4 (optional): On-error replay
 

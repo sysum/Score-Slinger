@@ -26,6 +26,14 @@ Details: **CONTEXT.md → Observability (Sentry)**; plan in `docs/SENTRY_PLAN.md
 - **Verified locally:** tsc 0 errors, lint clean, expo-doctor same 3 pre-existing failures, `npm audit --omit=dev` no new highs (2 new moderates: `glob` via `@sentry/bundler-plugins`). Dev-server web bundle compiles, contains one `@sentry/core` copy, no `@sentry/replay` / `@sentry-internal/feedback`, and no `expo/fetch`.
 - **Needs the user:** `EXPO_PUBLIC_SENTRY_DSN` in Vercel (Production + Preview), redeploy without build cache, verify on a preview (checklist in the PR / hand-off).
 
+### Sentry Phase 3: source maps in the Vercel build (branch `feat/sentry-client`, 2026-11-25 — not pushed)
+
+- `vercel.json` `buildCommand` → `npm run build:web`: `expo export --platform web --source-maps` (env mapping kept), then `expo-upload-sourcemaps dist` if `SENTRY_AUTH_TOKEN` is set, then **always** `find dist -name '*.map' -type f -delete`. Details in `docs/SENTRY_PLAN.md` → Phase 3 and CONTEXT.md → Vercel.
+- `@sentry/expo-upload-sourcemaps` pinned devDependency (8.35.0, bundles `@sentry/cli` 3.8.2); no `npx` download at build time.
+- Pairing is by Debug ID: Expo writes `//# debugId=` into each exported `.js` and `debugId` into its `.map`; Sentry's Metro premodule registers it at runtime. Org/project from `SENTRY_ORG` / `SENTRY_PROJECT`, URL from the `app.json` plugin entry (`https://sentry.io/`).
+- **Decision (trade-off):** a failed upload logs a warning and the deploy continues, so Sentry trouble never blocks a release; that deploy's client stack traces stay minified. The map deletion runs on success, failure and skip (tested with a stub uploader against a fake `dist/`).
+- **Needs the user:** Vercel env `SENTRY_AUTH_TOKEN` (Sensitive), `SENTRY_ORG=team-beam`, `SENTRY_PROJECT=score-slinger-web` (Production + Preview). Verify on the preview: no `.map` served, artifacts listed in Sentry, a test error shows source lines.
+
 ---
 
 ## Recently Completed (shipped to `main`)

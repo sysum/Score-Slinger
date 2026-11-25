@@ -8,6 +8,7 @@
     "expo:dev": "EXPO_PUBLIC_DOMAIN=localhost:5055 npx expo start --localhost",
     "server:dev": "NODE_ENV=development tsx --env-file .env server/index.ts",
     "start": "npx expo start",
+    "build:web": "EXPO_PUBLIC_VERCEL_ENV=$VERCEL_ENV EXPO_PUBLIC_COMMIT_SHA=$VERCEL_GIT_COMMIT_SHA npx expo export --platform web --source-maps && (if [ -z \"$SENTRY_AUTH_TOKEN\" ]; then echo 'Sentry: SENTRY_AUTH_TOKEN not set, skipping source map upload'; else expo-upload-sourcemaps dist || echo 'WARNING: Sentry source map upload failed; deploying without readable client stack traces'; fi) && find dist -name '*.map' -type f -delete",
     "lint": "npx expo lint",
     "lint:fix": "npx expo lint --fix",
     "db:start": "supabase start",
@@ -70,6 +71,7 @@
   "devDependencies": {
     "@babel/core": "^7.29.0",
     "@expo/ngrok": "^4.1.0",
+    "@sentry/expo-upload-sourcemaps": "8.35.0",
     "@types/node": "^22.19.19",
     "@types/react": "~19.2.10",
     "babel-plugin-react-compiler": "^1.0.0",
