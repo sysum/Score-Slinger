@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   View,
   Text,
@@ -209,7 +209,7 @@ function HistoryCard({
           <Pressable
             onPress={() => {
               if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              analytics.track("score_delete_requested", { via: "swipe" });
+              analytics.track("score_delete_requested", { via: "swipe", score_id: item.id });
               onDelete();
             }}
             style={({ pressed }) => [styles.deleteBtn, pressed && { opacity: 0.7 }]}
@@ -302,9 +302,18 @@ export default function HistoryScreen() {
     });
   }, []);
 
-  const { data: scores = [], isLoading } = useQuery<Score[]>({
+  const { data, isLoading } = useQuery<Score[]>({
     queryKey: ["/api/scores"],
   });
+  const scores = data ?? [];
+
+  // history_loaded: once per mount, when the score list first arrives.
+  const historyLoadedRef = useRef(false);
+  useEffect(() => {
+    if (historyLoadedRef.current || !data) return;
+    historyLoadedRef.current = true;
+    analytics.track("history_loaded", { count: data.length, is_empty: data.length === 0 });
+  }, [data]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -324,13 +333,15 @@ export default function HistoryScreen() {
 
   const cancelDelete = () => {
     if (isDeleting) return;
-    analytics.track("score_delete_canceled", { source: "history" });
+    analytics.track("score_delete_canceled", { source: "history", score_id: pendingDeleteId });
     clearDeleteError();
     setPendingDeleteId(null);
   };
 
   const handleSortChange = async (option: SortOption) => {
     analytics.track("history_sort_changed", { sort: option });
+    // Also persists the default sort (same storage key as Profile's setting).
+    analytics.setPersonProperties({ default_sort: option });
     setSortOption(option);
     setShowSortPicker(false);
     await AsyncStorage.setItem("sort_option", option).catch(() => {});
@@ -391,7 +402,13 @@ export default function HistoryScreen() {
                 displayName={displayName}
                 canDelete={item.uploaderName === displayName}
                 onPress={() => {
-                  analytics.track("score_detail_viewed", { source: "history", scoreId: item.id });
+                  analytics.track("score_detail_viewed", {
+                    source: "history",
+                    score_id: item.id,
+                    // Same ownership rule as the delete permission (display name match).
+                    is_own: item.uploaderName === displayName,
+                    has_image: !!item.imagePath,
+                  });
                   router.push(`/score/${item.id}`);
                 }}
                 onDelete={() => setPendingDeleteId(item.id)}

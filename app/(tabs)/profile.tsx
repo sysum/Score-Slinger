@@ -112,18 +112,21 @@ export default function ProfileScreen() {
 
   const handleSortChange = async (option: SortOption) => {
     analytics.track("default_sort_changed", { sort: option });
+    analytics.setPersonProperties({ default_sort: option });
     setSortOption(option);
     await AsyncStorage.setItem("sort_option", option).catch(() => {});
   };
 
   const handleDateFormatChange = async (key: DateFormatKey) => {
     analytics.track("date_format_changed", { format: key });
+    analytics.setPersonProperties({ date_format: key });
     setDateFormat(key);
     await AsyncStorage.setItem("date_format", key).catch(() => {});
   };
 
   const handleAppearanceChange = (m: AppearanceMode) => {
     analytics.track("appearance_changed", { mode: m });
+    analytics.setPersonProperties({ theme: m });
     setMode(m);
   };
 

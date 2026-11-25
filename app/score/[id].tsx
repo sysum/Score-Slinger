@@ -27,7 +27,7 @@ import Animated, {
   interpolate,
 } from "react-native-reanimated";
 import { useTheme } from "@/contexts/ThemeContext";
-import { apiRequest } from "@/lib/query-client";
+import { apiRequest, isCapturedApiError } from "@/lib/query-client";
 import { analytics } from "@/lib/analytics";
 import { useDeleteScore } from "@/lib/use-delete-score";
 import { type ThemeColors } from "@/constants/colors";
@@ -189,8 +189,13 @@ export default function ScoreDetailScreen() {
         playerNames: Object.keys(updated).length > 0 ? updated : null,
       });
       queryClient.invalidateQueries({ queryKey: ["/api/scores"] });
-      analytics.track("player_names_updated");
-    } catch {}
+      analytics.track("player_names_updated", { location: "detail", score_id: id, color });
+    } catch (err) {
+      // Silent in the UI (the local label is kept), so report it.
+      if (!isCapturedApiError(err)) {
+        analytics.captureException(err, { context: "player_names_update", location: "detail", score_id: id });
+      }
+    }
   };
 
   const handleDelete = async () => {
@@ -210,13 +215,13 @@ export default function ScoreDetailScreen() {
   };
 
   const closeDetail = () => {
-    analytics.track("score_detail_closed", { scoreId: id });
+    analytics.track("score_detail_closed", { score_id: id });
     router.back();
   };
 
   const cancelDeleteModal = () => {
     if (isDeleting) return;
-    analytics.track("score_delete_canceled", { source: "detail", scoreId: id });
+    analytics.track("score_delete_canceled", { source: "detail", score_id: id });
     clearDeleteError();
     setShowDeleteModal(false);
   };
@@ -265,7 +270,7 @@ export default function ScoreDetailScreen() {
         <Text style={[styles.headerTitle, { color: colors.text }]}>Score Detail</Text>
         {canDelete ? (
           <Pressable
-            onPress={() => { analytics.track("score_delete_requested", { via: "detail_button", scoreId: id }); setShowDeleteModal(true); }}
+            onPress={() => { analytics.track("score_delete_requested", { via: "detail_button", score_id: id }); setShowDeleteModal(true); }}
             style={({ pressed }) => [styles.headerBtn, pressed && { opacity: 0.6 }]}
           >
             <Ionicons name="trash-outline" size={20} color={colors.danger} />

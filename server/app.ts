@@ -5,7 +5,7 @@ import type { User } from "@supabase/supabase-js";
 import OpenAI from "openai";
 import exifParser from "exif-parser";
 import { supabaseAdmin } from "./supabase";
-import { buildParseRequest, checkParsedScore, extractParsedJson, normalizePlayerNames } from "./parsePrompt";
+import { PARSE_MODEL, buildParseRequest, checkParsedScore, extractParsedJson, normalizePlayerNames } from "./parsePrompt";
 import type { Score } from "../shared/schema";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -128,6 +128,8 @@ app.post("/api/parse-score", async (c) => {
     if (photoTakenDate) {
       parsed.photoTakenDate = photoTakenDate;
     }
+    // Echoed for client analytics (score_parse_succeeded.model).
+    parsed.model = PARSE_MODEL;
 
     return c.json(parsed);
   } catch (error: unknown) {

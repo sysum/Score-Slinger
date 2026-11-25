@@ -94,6 +94,8 @@ export default function TabBar({ state, descriptors, navigation }: BottomTabBarP
 
       // Extract EXIF date
       let photoDate: string = new Date().toISOString();
+      // Where photoDate came from, for score_saved.played_date_source.
+      let photoDateSource: "exif" | "now" = "now";
       if (asset.exif) {
         const exifData = asset.exif as Record<string, unknown>;
         const findExifDate = (obj: Record<string, unknown>): string | null => {
@@ -116,6 +118,7 @@ export default function TabBar({ state, descriptors, navigation }: BottomTabBarP
           const d = new Date(parsed);
           if (!isNaN(d.getTime())) {
             photoDate = d.toISOString();
+            photoDateSource = "exif";
           }
         }
       }
@@ -126,6 +129,9 @@ export default function TabBar({ state, descriptors, navigation }: BottomTabBarP
           uri: asset.uri,
           photoDate,
           fileName: asset.fileName || asset.uri.split("/").pop() || "",
+          // Analytics only (upload/parse/save events).
+          source,
+          photoDateSource,
         },
       });
     } catch (err) {

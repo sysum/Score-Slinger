@@ -1,6 +1,7 @@
 import { fetch } from "expo/fetch";
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 import { supabase } from "./supabase";
+import { analytics } from "./analytics";
 
 /**
  * Gets the base URL for the Express API server (e.g., "http://localhost:3000")
@@ -33,10 +34,33 @@ export class ApiError extends Error {
   }
 }
 
-async function throwIfResNotOk(res: Response) {
+/**
+ * True when throwIfResNotOk already sent this error as an `$exception` (5xx),
+ * so catch sites that report swallowed errors don't capture it twice.
+ */
+export function isCapturedApiError(err: unknown): boolean {
+  return err instanceof ApiError && err.status >= 500;
+}
+
+/**
+ * Analytics route label: drops the query string and replaces the score id so
+ * every score maps to one route (e.g. /api/scores/:id/image-url).
+ */
+function normalizeRoute(route: string): string {
+  return route.split("?")[0].replace(/^(\/api\/scores)\/[^/]+/, "$1/:id");
+}
+
+// Single choke point for non-2xx responses: fires `api_request_failed` once per
+// failed request, plus an `$exception` for 5xx. Network errors (fetch threw)
+// never reach here.
+async function throwIfResNotOk(res: Response, method: string, route: string) {
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
-    throw new ApiError(res.status, `${res.status}: ${text}`);
+    const error = new ApiError(res.status, `${res.status}: ${text}`);
+    const props = { route: normalizeRoute(route), method, status: res.status };
+    analytics.track("api_request_failed", props);
+    if (res.status >= 500) analytics.captureException(error, props);
+    throw error;
   }
 }
 
@@ -61,7 +85,7 @@ export async function apiRequest(
     credentials: "include",
   });
 
-  await throwIfResNotOk(res);
+  await throwIfResNotOk(res, method, route);
   return res;
 }
 
@@ -72,7 +96,8 @@ export const getQueryFn: <T>(options: {
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
     const baseUrl = getApiUrl();
-    const url = new URL(queryKey.join("/") as string, baseUrl);
+    const route = queryKey.join("/") as string;
+    const url = new URL(route, baseUrl);
 
     const { data: { session } } = await supabase.auth.getSession();
     const token = session?.access_token;
@@ -86,7 +111,7 @@ export const getQueryFn: <T>(options: {
       return null;
     }
 
-    await throwIfResNotOk(res);
+    await throwIfResNotOk(res, "GET", route);
     return await res.json();
   };
 

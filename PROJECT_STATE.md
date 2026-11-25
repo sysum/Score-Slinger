@@ -1,18 +1,41 @@
 # Score Slinger — Project State
 
-Last updated: 2026-11-24
+Last updated: 2026-11-25
 
 ---
 
 ## Current Goal
 
-No major initiative in flight. The app is healthy and in production; the dependency refresh, analytics build-out, tsc/lint cleanup, new app logo, and local Supabase dev stack have all shipped to `main`. Remaining work is backlog/maintenance (see Next Steps).
+PostHog user-behavior plan, Phase 2 (event taxonomy + richer props) is in review. The app is healthy and in production; the dependency refresh, analytics build-out, tsc/lint cleanup, new app logo, local Supabase dev stack and PostHog Phase 1 have all shipped to `main`. Phase 3 (`posthog-node` server-side events) follows.
 
 ---
 
 ## In Progress
 
-### PostHog Phase 1: foundation (branch `feat/posthog-foundation`, 2026-11-24 — in review)
+### PostHog Phase 2: taxonomy + richer props (branch `feat/posthog-phase2`, 2026-11-25 — in review)
+
+Client-side only, apart from one server line. Full event/property list in **CONTEXT.md → PostHog → Event catalog**, plus an "Insights to build" list (upload + sign-in funnels, parse quality, retention, errors, gameplay stats).
+
+- **`scoreId` → `score_id`** on every event (`score_kept`, `score_detail_viewed/closed`, `score_delete_requested/canceled`, `score_deleted`, `score_delete_failed`). History's swipe `score_delete_requested` and `score_delete_canceled` now also carry `score_id`.
+- **Upload split out of parse** (`app/upload.tsx`): new `image_upload_started/succeeded/failed { ext, bytes, source }`; `score_parse_started` now fires only after a successful upload. A Storage failure used to be logged as `score_parse_failed` — parse-failure counts drop accordingly.
+- **`score_parse_succeeded`** `{ duration_ms, warning, has_exif_date, has_achievement, team_score, model }`. Client `ParsedResult` now types `warning` / `model`; `/api/parse-score` echoes `model: PARSE_MODEL` (the only server change).
+- **`score_parse_failed`** `{ stage: parse|save|network, status, error }`. "network" = the request threw with no HTTP response (tracked by wrapping `apiRequest` in the flow, not by error-class sniffing).
+- **`score_saved`** `{ score_id, source, played_date_source (exif_server|exif_client|now), played_date_age_days, duplicate_overridden, history_size }` + flat gameplay props (`team_score`, `achievement`, three `objective_*`, `score_blue/yellow/red/purple`, `top_color`). **Decision (user):** track team scores and per-color scores in analytics as flat props; `score_parse_succeeded` gets `team_score` only to avoid double counting. `source` and `photoDateSource` (exif|now) are new analytics-only router params from `components/TabBar.tsx`.
+- **`score_kept` / `score_discarded`** `{ score_id, had_warning, names_edited_count, date_edited }`. Documented that `score_saved` fires before keep/discard (auto-save), so discards must be excluded.
+- **`player_names_updated`** `{ location, score_id, color }` (upload + detail); **`played_date_changed`** adds `delta_minutes` (upload only — detail has no date editor).
+- **New `api_request_failed { route, method, status }`** at the single choke point `throwIfResNotOk` (`lib/query-client.ts`), route normalized to `/api/scores/:id/...`; 5xx also `captureException`. Network errors (no response) are not included.
+- **New `history_loaded { count, is_empty }`** once per History mount; **`score_detail_viewed`** adds `is_own` (display-name match, same rule as delete permission) and `has_image`.
+- **Preferences as person properties:** `theme`, `date_format`, `default_sort` via `setPersonProperties` alongside the Profile events. History's sort picker writes the same stored setting, so it also sets `default_sort`.
+- **Swallowed catches** (player-name PATCH on upload/detail, discard DELETE, unexpected non-HTTP errors in the upload flow) now `captureException(err, { context })`, skipping 5xx already captured upstream (`isCapturedApiError`).
+- **User decisions:** email stays a person property; no internal-user filtering; no session replay; no `posthog-node` (Phase 3).
+
+**Status:** tsc 0 errors, `expo lint` clean. Needs a click-through against PostHog Non-Prod (upload happy path, parse error, discard, name/date edits, History/Detail, Profile prefs) and then the Insights built in the PostHog UI.
+
+---
+
+## Recently Completed (shipped to `main`)
+
+### PostHog Phase 1: foundation (PR #15, merged 2026-11-24)
 
 First phase of the PostHog user-behavior plan (Phase 2 — taxonomy, `score_id` rename, team scores/colors, dashboards — follows).
 
@@ -23,11 +46,7 @@ First phase of the PostHog user-behavior plan (Phase 2 — taxonomy, `score_id` 
 - **Errors:** root `ErrorBoundary` `onError` → `captureException(error, { component_stack })`.
 - **User decisions:** store email + display name on persons (yes); no internal-user filtering; session replay deferred; lifecycle defaults kept; the `scoreId` → `score_id` prop rename is Phase 2.
 
-**Status:** tsc/lint clean, web bundle compiles, Non-Prod ingestion verified (`/flags` 200, test event 200). Needs a manual click-through against PostHog Non-Prod (checklist in the hand-off).
-
----
-
-## Recently Completed (shipped to `main`)
+**Status:** merged as PR #15. tsc/lint clean, web bundle compiles, Non-Prod ingestion verified (`/flags` 200, test event 200).
 
 ### Delete confirmation feedback (PR #13, merged 2026-11-24)
 
