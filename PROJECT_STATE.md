@@ -12,7 +12,13 @@ No major initiative in flight. The app is healthy and in production; the depende
 
 ## In Progress
 
-Local Supabase workflow is on branch `feat/local-supabase` (not yet merged). `main` is clean and deployed.
+### Parse prompt: colors by panel, not position (branch `fix/parse-colors-by-panel`, 2026-11-24)
+
+**Bug:** the `/api/parse-score` prompt hard-coded player colors by panel position (blue top-left, yellow bottom-left, red top-right, purple bottom-right). The physical layout varies by ride vehicle — 3 of the 5 prod boards (Aug 25 2025, Sep 29 2025, Oct 27 2026) are yellow TL / blue BL / purple TR / red BR — so the model read the numbers right but swapped colors within a column. On those boards the top panel of each column has **white** digits, so color must come from the panel background/frame.
+
+**Fix:** prompt moved to `server/parsePrompt.ts` (system prompt, user text, model, `buildParseRequest`, `extractParsedJson`, `checkParsedScore`) so offline validation can exercise the exact production request. Prompt now derives color only from each panel's background/digit color and says positions vary; each player gets a `position` field (traceability, stored in `players` JSONB; `Score.players[].position?` is optional). JSON mode (`response_format: json_object`) on, regex extraction kept as fallback. Post-parse sanity checks (4 players, colors exactly {blue,yellow,red,purple}; players + 3 objectives === teamScore) `console.warn` and add a `warning` string to the response — they never block the save. **Note:** a within-column color swap passes both sanity checks (same set of colors, same sum), so they can't catch this specific bug — only the prompt fix does.
+
+**Status:** code complete, tsc/lint clean. **Live validation against OpenAI blocked** — the prod OpenAI org hit its enforced spend limit (429), which also means prod parsing is failing until the limit is raised. **Prod data:** besides Oct 27 (corrected), the Aug 25 and Sep 29 2025 rows have wrong colors (partial swaps), and Aug 25's `rescueSpiderMan` is 70000 (board says 37,000).
 
 ---
 

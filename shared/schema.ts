@@ -17,6 +17,9 @@ export type Score = {
     name: string;
     score: number;
     color: string;
+    // On-screen panel position reported by the parser (top-left, bottom-left,
+    // top-right, bottom-right). Traceability only — layouts vary by vehicle.
+    position?: string;
   }>;
   playerNames: Record<string, string> | null;
   imagePath: string | null;
