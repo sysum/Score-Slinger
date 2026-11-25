@@ -66,7 +66,7 @@ export function useDeleteScore(source: DeleteSource) {
         }
         analytics.track("score_delete_failed", {
           source,
-          scoreId,
+          score_id: scoreId,
           error: err instanceof Error ? err.message : String(err),
         });
         setError(DELETE_ERROR_MESSAGE);
@@ -80,7 +80,7 @@ export function useDeleteScore(source: DeleteSource) {
     queryClient.invalidateQueries({ queryKey: SCORES_KEY });
     analytics.track("score_deleted", {
       source,
-      scoreId,
+      score_id: scoreId,
       ...(alreadyDeleted ? { already_deleted: true } : {}),
     });
     showToast("Score deleted");

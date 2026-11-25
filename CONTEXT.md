@@ -72,7 +72,7 @@ All require `Authorization: Bearer <supabase_jwt>` (`requireAuth` middleware).
 
 | Method | Route | Description |
 | :---- | :---- | :---- |
-| POST | `/api/parse-score` | `{ imagePath }` → OpenAI vision → parsed JSON |
+| POST | `/api/parse-score` | `{ imagePath }` → OpenAI vision → parsed JSON (+ `warning?`, `photoTakenDate?`, `model`) |
 | GET | `/api/scores` | All scores, `created_at` DESC |
 | POST | `/api/scores` | Save a parsed score (auto-saved by the upload screen on parse success) |
 | PATCH | `/api/scores/:id/player-names` | Update player name labels (any authed user — intentional) |
@@ -104,7 +104,7 @@ app/score/\[id\].tsx       Modal — score detail: image, team score, objectives
 
 Navigation flow:
 
-1. FAB tap → camera action sheet → `router.push("/upload", { uri, photoDate, fileName })`  
+1. FAB tap → camera action sheet → `router.push("/upload", { uri, photoDate, fileName, source, photoDateSource })` (`source` = `camera`\|`library` and `photoDateSource` = `exif`\|`now` are analytics-only)  
 2. History card tap → `router.push("/score/[id]")`  
 3. Both upload and score/\[id\] are presented as `presentation: "modal"` Stack screens
 
@@ -178,7 +178,8 @@ lib/
   supabase.ts           Client Supabase instance (publishable key in prod / anon demo key locally, PKCE, AsyncStorage)
 
   query-client.ts       getApiUrl(), apiRequest(), getQueryFn(), QueryClient; non-2xx responses
-                        throw ApiError (`.status`, message "<status>: <body>")
+                        throw ApiError (`.status`, message "<status>: <body>") and fire
+                        `api_request_failed` (+ `$exception` for 5xx; see isCapturedApiError)
 
   analytics.ts          PostHog wrapper — client options, super props, identifyUser/track/screen/
                         captureException/setPersonProperties/reset; null-safe (no-op if key missing)
@@ -251,14 +252,14 @@ vercel.json             Build command, output dir, /api/\* routing
 - **Identify / person properties:** `AuthGate` (`app/_layout.tsx`) identifies once per app run per user from the `onAuthStateChange` listener (no separate `getSession()` call — `INITIAL_SESSION` covers it), with `$set: { email, display_name }` and `$set_once: { first_seen_at }`. Email and display name are stored on person profiles by decision. `display_name` is re-set via `setPersonProperties` when it's first set (`DisplayNameSetup`) or changed (Profile). `SIGNED_OUT` (incl. expiry / another tab) and Profile's Sign Out both call `analytics.reset()`.  
 - **`signed_in` detection:** fires only when PostHog's persisted distinct ID changes from anonymous to the user (`identifyUser()` resolves `true`) — i.e. a real sign-in, never a reload, token refresh, `USER_UPDATED`, or web tab refocus. It is deliberately **not** keyed on the Supabase `SIGNED_IN` event: Supabase also emits `SIGNED_IN` when restoring a stored session and on every web tab refocus, and the web magic-link `SIGNED_IN` can fire before the listener subscribes.  
 - **Screen tracking:** `RootLayoutNav` calls `analytics.screen()` whenever expo-router's `usePathname()` changes. Names = route path without the leading slash, `/` → `history`, dynamic segments as their pattern: `history`, `profile`, `upload`, `score/[id]` (prop `score_id`). `AuthScreen` and `DisplayNameSetup` render outside the Stack and fire `auth` / `display_name_setup` on mount. Don't add per-screen `analytics.screen()` calls elsewhere (double counting).  
-- **Error capture:** the root `<ErrorBoundary onError>` sends caught render errors via `captureException(error, { component_stack })`. SDK autocapture: `uncaughtExceptions` (RN `ErrorUtils` — native only) and `unhandledRejections` on, `console` off (explicit `*_failed` events already cover handled errors). Autocapture is ignored if the PostHog project's remote config disables exception autocapture (Project settings → Error tracking).  
+- **Error capture:** the root `<ErrorBoundary onError>` sends caught render errors via `captureException(error, { component_stack })`. `lib/query-client.ts` `throwIfResNotOk` (the single choke point for non-2xx API responses, used by `apiRequest` and the default query fn) fires `api_request_failed` and, for 5xx, `captureException(error, { route, method, status })`. Catch blocks that swallow an error silently (upload/detail player-name PATCH, upload discard DELETE, unexpected non-HTTP errors in the upload flow) call `captureException(err, { context, … })`, skipping 5xx already captured upstream (`isCapturedApiError`). SDK autocapture: `uncaughtExceptions` (RN `ErrorUtils` — native only) and `unhandledRejections` on, `console` off (explicit `*_failed` events already cover handled errors). Autocapture is ignored if the PostHog project's remote config disables exception autocapture (Project settings → Error tracking).  
 - **Deliberately off:** session replay (deferred), and internal-user filtering (the owner's own usage is kept).  
 - `EXPO_PUBLIC_POSTHOG_DEBUG=true` turns on SDK debug logging (`posthog.debug(true)`).  
 - **Local dev + preview use the Non-Prod PostHog project's key; only production uses the prod key.**
 
 #### Event catalog
 
-Naming is `snake_case` `noun_verb`. To add an event, call `analytics.track("name", { props })`; keep names/props consistent with the table below. Going forward, new props use snake\_case (e.g. `score_id`); older events still use `scoreId`.
+Naming is `snake_case` `noun_verb`; property names are `snake_case` (all events use `score_id` since PostHog Phase 2; the old `scoreId` prop is gone, so filter older data on both). To add an event, call `analytics.track("name", { props })`; keep names/props consistent with the table below. Props marked "or null" are always sent, as `null` when unknown.
 
 | Event | Fires when | Properties |
 | :---- | :---- | :---- |
@@ -275,45 +276,65 @@ Naming is `snake_case` `noun_verb`. To add an event, call `analytics.track("name
 | `image_pick_canceled` | System picker dismissed with no selection | `source` |
 | `image_selected` | Image chosen from camera/library | `source` |
 | `image_pick_failed` | Picker threw | `source`, `error` |
-| `duplicate_warning_shown` | Same-timestamp score detected pre-parse | — |
+| `duplicate_warning_shown` | Same-timestamp score detected pre-upload | — |
 | `duplicate_upload_confirmed` | "Upload Anyway" tapped | — |
 | `duplicate_upload_canceled` | Duplicate warning dismissed | — |
-| `score_parse_started` | Parse request sent to `/api/parse-score` | — |
-| `score_parse_succeeded` | Parse returned a valid result | — |
-| `score_parse_failed` | Parse errored | `error` |
+| `image_upload_started` | Upload to Supabase Storage begins (after the duplicate check; not sent for HEIC rejected on web) | `ext`, `source` (`camera`\|`library`, or null) |
+| `image_upload_succeeded` | Storage upload finished | `ext`, `bytes` (image size; web `blob.size`, native decoded byte length), `source` |
+| `image_upload_failed` | Reading the image or the Storage upload failed (no parse is attempted) | `ext`, `bytes` (or null if the read failed), `source`, `error` |
+| `score_parse_started` | Parse request sent to `/api/parse-score` (only after `image_upload_succeeded`) | — |
+| `score_parse_succeeded` | Parse returned a valid result | `duration_ms` (parse request round trip), `warning` (server sanity-check text, or null), `has_exif_date` (EXIF date found server- or client-side), `has_achievement`, `team_score`, `model` (e.g. `gpt-4.1-mini`) |
+| `score_parse_failed` | Parse or the auto-save failed after a successful upload | `stage` (`parse`\|`save`\|`network`), `status` (HTTP status from `ApiError`, or null), `error`. `parse` + null status = the server answered 200 with `{ error }` (unreadable board) |
 | `parse_error_dismissed` | "Go Back" tapped on the parse-error screen | — |
-| `score_saved` | Parsed score persisted | — |
-| `score_kept` | "Done" tapped, keeping the saved score | `scoreId` |
-| `score_discarded` | Upload discarded (deletes the saved record) | — |
+| `score_saved` | Parsed score auto-saved (`POST /api/scores`) — **before** the user keeps or discards it (see note below) | `score_id`, `source`, `played_date_source` (`exif_server`\|`exif_client`\|`now`), `played_date_age_days` (whole days between played date and save), `duplicate_overridden`, `history_size` (shared history count incl. this score — all users, no per-user filter; null if not cached), plus gameplay: `team_score`, `achievement` (or null), `objective_fight_giant_bot`, `objective_rescue_spider_man`, `objective_destroy_giant_bot`, `score_blue`, `score_yellow`, `score_red`, `score_purple`, `top_color` (color of the highest player score; first in parse order on a tie) |
+| `score_kept` | "Done" tapped, keeping the saved score | `score_id`, `had_warning`, `names_edited_count` (colors with a custom name), `date_edited` |
+| `score_discarded` | Discard / close (X) tapped and the saved record was deleted | `score_id`, `had_warning`, `names_edited_count`, `date_edited` |
 | `played_date_edit_started` | Played-date editor opened | — |
-| `played_date_changed` | Played date saved (persisted via `PATCH /api/scores/:id/played-date` when the score was auto-saved; local-only otherwise) | `location` (`upload`), `score_id` (null if the auto-save failed) |
+| `played_date_changed` | Played date saved (persisted via `PATCH /api/scores/:id/played-date` when the score was auto-saved; local-only otherwise). Upload screen only — Score Detail has no date editor | `location` (`upload`), `score_id` (null if the auto-save failed), `delta_minutes` (new minus old, rounded) |
 | `played_date_change_failed` | Played-date PATCH failed (modal stays open with inline error) | `location` (`upload`), `score_id`, `error` |
 | `player_name_edit_started` | A player-name field opened for editing | `location` (`upload`\|`detail`) |
-| `player_names_updated` | A player name label saved | — |
+| `player_names_updated` | A player name label saved to the server (not sent if the PATCH fails, or on upload when the auto-save failed) | `location` (`upload`\|`detail`), `score_id`, `color` |
+| `history_loaded` | History tab's score list first arrives (once per mount) | `count`, `is_empty` |
 | `history_sort_opened` | History sort picker opened | — |
-| `history_sort_changed` | History sort option chosen | `sort` |
+| `history_sort_changed` | History sort option chosen (also updates the `default_sort` person property — same stored setting) | `sort` |
 | `history_pull_refreshed` | Pull-to-refresh on the history list | `platform` |
 | `card_swiped_open` | Swipe-to-delete reveals the delete action | `platform` |
-| `score_detail_viewed` | History card opened | `source`, `scoreId` |
-| `score_detail_closed` | Score detail back/close tapped | `scoreId` |
-| `score_delete_requested` | Delete initiated (opens confirm) | `via` (`swipe`\|`detail_button`), `scoreId?` |
-| `score_delete_canceled` | Delete confirm dismissed | `source` (`history`\|`detail`), `scoreId?` |
-| `score_deleted` | Delete confirmed and completed (fires once per success; a 404 counts as success) | `source`, `scoreId`, `already_deleted?` (`true` only when the server returned 404) |
-| `score_delete_failed` | Delete request failed (non-404 error); modal stays open for retry | `source` (`history`\|`detail`), `scoreId`, `error` |
+| `score_detail_viewed` | History card opened | `source`, `score_id`, `is_own` (uploader name matches the viewer's display name — same rule as delete permission), `has_image` |
+| `score_detail_closed` | Score detail back/close tapped | `score_id` |
+| `score_delete_requested` | Delete initiated (opens confirm) | `via` (`swipe`\|`detail_button`), `score_id` |
+| `score_delete_canceled` | Delete confirm dismissed | `source` (`history`\|`detail`), `score_id` |
+| `score_deleted` | Delete confirmed and completed (fires once per success; a 404 counts as success) | `source`, `score_id`, `already_deleted?` (`true` only when the server returned 404) |
+| `score_delete_failed` | Delete request failed (non-404 error); modal stays open for retry | `source` (`history`\|`detail`), `score_id`, `error` |
+| `api_request_failed` | Any API call got a non-2xx response (fired in `throwIfResNotOk`; network errors with no response are not included) | `route` (normalized, e.g. `/api/scores/:id/image-url`), `method`, `status` |
 | `appearance_changed` | Theme changed in Profile | `mode` (`dark`\|`light`\|`system`) |
 | `date_format_changed` | Date format changed in Profile | `format` |
 | `default_sort_changed` | Default sort changed in Profile | `sort` |
 | `display_name_edit_started` | Display-name edit opened in Profile | — |
 | `display_name_changed` | Display name saved in Profile | — |
 
+**Keep/discard note:** the upload screen auto-saves on parse success, so `score_saved` counts every parsed score, including ones later discarded. Exclude discards with `score_discarded` (same `score_id`). Neither `score_kept` nor `score_discarded` fires if the modal is dismissed another way (iOS swipe-down, Android back), and the score then stays saved — so "saved minus discarded" is the true count of kept scores, not `score_kept`. A failed discard DELETE is silent in the UI and sends `$exception` (`context: "score_discard"`) instead of `score_discarded`.
+
+**Failure accounting:** a Storage upload failure is `image_upload_failed`, not `score_parse_failed` (before Phase 2 it was logged as a parse failure). An HTTP error on parse/save fires both `score_parse_failed` (flow context) and `api_request_failed` (route/status).
+
+**Person properties:** `email`, `display_name`, `first_seen_at` (identify); `display_name` (on set/change); `theme`, `date_format`, `default_sort` (set when the matching preference changes — users who never changed a setting have none).
+
 SDK / automatic events (not from `track()`):
 
-- `$identify` (or `$set` when re-identifying the same user) — from `analytics.identifyUser()`; person props `email`, `display_name`, `first_seen_at`. `analytics.setPersonProperties({ display_name })` also emits `$set`.
+- `$identify` (or `$set` when re-identifying the same user) — from `analytics.identifyUser()`; person props `email`, `display_name`, `first_seen_at`. `analytics.setPersonProperties(...)` also emits `$set`.
 - `$screen` — `$screen_name` is one of `history`, `profile`, `upload`, `score/[id]` (+ `score_id`), `auth`, `display_name_setup` (see Screen tracking above).
-- `$exception` — `ErrorBoundary` render errors (`component_stack`) plus SDK autocapture (uncaught errors on native, unhandled promise rejections).
+- `$exception` — `ErrorBoundary` render errors (`component_stack`), 5xx API responses (`route`, `method`, `status`), swallowed catch blocks (`context`: `player_names_update` / `score_discard` / `analyze_image`), plus SDK autocapture (uncaught errors on native, unhandled promise rejections).
 - `Application Opened` / `Application Became Active` / `Application Backgrounded` / `Application Installed` / `Application Updated` — lifecycle defaults.
 
-`analytics.reset()` runs on sign-out. Existing event props still use `scoreId` (camelCase); the rename to `score_id` is planned for PostHog Phase 2.
+`analytics.reset()` runs on sign-out.
+
+#### Insights to build (PostHog UI)
+
+- **Upload funnel:** `add_score_fab_pressed` → `add_score_source_selected` → `image_selected` → `image_upload_succeeded` → `score_parse_succeeded` → `score_saved` → `score_kept`; 10-minute conversion window; breakdown by `source` and `platform`. (Duplicate-warning cancels drop out between `image_selected` and `image_upload_succeeded`.)
+- **Sign-in funnel:** `sign_in_requested` → `signed_in`.
+- **Parse quality:** warning rate (`score_parse_succeeded` where `warning` is set ÷ all `score_parse_succeeded`); discard rate (`score_discarded` ÷ `score_saved`); name-correction rate (`score_kept` where `names_edited_count` > 0 ÷ `score_kept`, or `player_names_updated` with `location = upload`); `duration_ms` p50/p95 on `score_parse_succeeded`.
+- **Retention:** monthly retention on `score_saved`.
+- **Errors:** `$exception` trends; `score_parse_failed` broken down by `stage`; `api_request_failed` broken down by `route` and `status`; `image_upload_failed` count.
+- **Gameplay stats** (on `score_saved`, ideally excluding discarded `score_id`s): average `team_score`; `top_color` distribution; averages of `score_blue` / `score_yellow` / `score_red` / `score_purple` and the three `objective_*` props.
 
 ---
 
@@ -410,7 +431,7 @@ There are no automated tests.
 - All navigation uses `expo-router` (`useRouter`, `router.push`, `router.back`)  
 - Tab screens live in `app/(tabs)/`  
 - Modals are Stack screens with `presentation: "modal"` in `app/_layout.tsx`  
-- The upload modal receives image data as route params (uri, photoDate, fileName)  
+- The upload modal receives image data as route params (uri, photoDate, fileName, plus analytics-only source, photoDateSource)  
 - Never use conditional renders to fake navigation — use the router
 
 ### Environment variables

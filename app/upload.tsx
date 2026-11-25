@@ -30,7 +30,7 @@ import Animated, {
 } from "react-native-reanimated";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { useTheme } from "@/contexts/ThemeContext";
-import { apiRequest } from "@/lib/query-client";
+import { apiRequest, ApiError, isCapturedApiError } from "@/lib/query-client";
 import { supabase } from "@/lib/supabase";
 import { analytics } from "@/lib/analytics";
 import { type ThemeColors } from "@/constants/colors";
@@ -55,6 +55,10 @@ interface ParsedResult {
   players: PlayerScore[];
   error?: string;
   photoTakenDate?: string;
+  /** Server sanity-check problems (never blocks the save). */
+  warning?: string;
+  /** OpenAI model that parsed the image. */
+  model?: string;
 }
 
 interface Score {
@@ -74,6 +78,29 @@ interface Score {
 const PLAYER_COLOR_ORDER = ["blue", "red", "yellow", "purple"];
 
 const DATE_SAVE_ERROR_MESSAGE = "Couldn't save the date — check your connection and try again.";
+
+// Flat, breakdown-friendly gameplay props for score_saved (no nested arrays).
+function gameplayProps(data: ParsedResult) {
+  const players = data.players ?? [];
+  const scoreFor = (color: PlayerScore["color"]) =>
+    players.find((p) => p.color === color)?.score ?? null;
+  const top = players.reduce<PlayerScore | null>(
+    (best, p) => (best === null || p.score > best.score ? p : best),
+    null,
+  );
+  return {
+    team_score: data.teamScore,
+    achievement: data.achievement || null,
+    objective_fight_giant_bot: data.objectiveScores?.fightGiantBot ?? null,
+    objective_rescue_spider_man: data.objectiveScores?.rescueSpiderMan ?? null,
+    objective_destroy_giant_bot: data.objectiveScores?.destroyGiantBot ?? null,
+    score_blue: scoreFor("blue"),
+    score_yellow: scoreFor("yellow"),
+    score_red: scoreFor("red"),
+    score_purple: scoreFor("purple"),
+    top_color: top?.color ?? null,
+  };
+}
 
 // ─── Player card ──────────────────────────────────────────────────────────────
 
@@ -156,10 +183,13 @@ function PlayerCard({
 // ─── Upload screen ─────────────────────────────────────────────────────────────
 
 export default function UploadScreen() {
-  const { uri, photoDate, fileName } = useLocalSearchParams<{
+  const { uri, photoDate, fileName, source: uploadSource, photoDateSource } = useLocalSearchParams<{
     uri: string;
     photoDate: string;
     fileName: string;
+    // Analytics only, set by TabBar: "camera" | "library", and "exif" | "now".
+    source?: string;
+    photoDateSource?: string;
   }>();
 
   const { colors, isDark } = useTheme();
@@ -180,6 +210,8 @@ export default function UploadScreen() {
   const [dateError, setDateError] = useState<string | null>(null);
   // Ref guard: state updates are async, so a double-tap could otherwise send two PATCHes.
   const savingDateRef = useRef(false);
+  // Analytics: set once a played-date edit is saved (score_kept / score_discarded).
+  const dateEditedRef = useRef(false);
   const [showDuplicateWarning, setShowDuplicateWarning] = useState(false);
   const displayNameRef = useRef<string>("");
 
@@ -209,13 +241,31 @@ export default function UploadScreen() {
   }, []);
   /* eslint-enable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
 
-  const analyzeImage = async (imageUri: string, dateStr?: string, file?: string) => {
+  const analyzeImage = async (
+    imageUri: string,
+    dateStr?: string,
+    file?: string,
+    { duplicateOverridden = false }: { duplicateOverridden?: boolean } = {},
+  ) => {
     setLoading(true);
     setShowDuplicateWarning(false);
-    analytics.track("score_parse_started");
+
+    // Analytics state. `stage` tells an upload failure (image_upload_failed)
+    // from a parse/save one (score_parse_failed.stage). `networkFailed` is set
+    // when a request threw without an HTTP response (stage "network").
+    const source = uploadSource ?? null;
+    let stage: "upload" | "parse" | "save" = "upload";
+    let networkFailed = false;
+    let ext = "jpg";
+    let byteCount: number | null = null;
+    const request = (method: string, route: string, body?: unknown) =>
+      apiRequest(method, route, body).catch((err: unknown) => {
+        if (!(err instanceof ApiError)) networkFailed = true;
+        throw err;
+      });
 
     try {
-      const ext = imageUri.split(".").pop()?.split("?")[0]?.toLowerCase() || "jpg";
+      ext = imageUri.split(".").pop()?.split("?")[0]?.toLowerCase() || "jpg";
 
       if (Platform.OS === "web" && (ext === "heic" || ext === "heif")) {
         Alert.alert("Unsupported format", "HEIC files aren't supported on web. Please convert to JPEG or PNG first.");
@@ -227,10 +277,12 @@ export default function UploadScreen() {
       const storagePath = `scores/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
 
       // Upload to Supabase Storage
+      analytics.track("image_upload_started", { ext, source });
       let uploadError: Error | null = null;
       if (Platform.OS === "web") {
         const response = await globalThis.fetch(imageUri);
         const blob = await response.blob();
+        byteCount = blob.size;
         const { error } = await supabase.storage.from("scores").upload(storagePath, blob, { contentType });
         if (error) uploadError = error;
       } else {
@@ -242,27 +294,49 @@ export default function UploadScreen() {
         const binaryStr = atob(base64);
         const bytes = new Uint8Array(binaryStr.length);
         for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+        byteCount = bytes.length;
         const { error } = await supabase.storage.from("scores").upload(storagePath, bytes, { contentType });
         if (error) uploadError = error;
       }
 
       if (uploadError) throw uploadError;
+      analytics.track("image_upload_succeeded", { ext, bytes: byteCount, source });
 
       // Parse via AI
-      const res = await apiRequest("POST", "/api/parse-score", { imagePath: storagePath });
-      const data = await res.json();
+      stage = "parse";
+      analytics.track("score_parse_started");
+      const parseStartedAt = Date.now();
+      const res = await request("POST", "/api/parse-score", { imagePath: storagePath });
+      const data: ParsedResult = await res.json();
 
       if (data.error) {
-        analytics.track("score_parse_failed", { error: data.error });
+        analytics.track("score_parse_failed", { stage, status: null, error: data.error });
         setResult({ teamScore: 0, gameName: "Unknown", players: [], error: data.error });
       } else {
-        analytics.track("score_parse_succeeded");
+        analytics.track("score_parse_succeeded", {
+          duration_ms: Date.now() - parseStartedAt,
+          warning: data.warning ?? null,
+          has_exif_date: !!data.photoTakenDate || photoDateSource === "exif",
+          has_achievement: !!data.achievement,
+          team_score: data.teamScore,
+          model: data.model ?? null,
+        });
         const effectiveDate = data.photoTakenDate || dateStr || new Date().toISOString();
+        // Mirrors effectiveDate's fallback chain. A dateStr without client EXIF is
+        // TabBar's pick-time default, so it counts as "now".
+        const playedDateSource = data.photoTakenDate
+          ? "exif_server"
+          : dateStr && photoDateSource === "exif"
+            ? "exif_client"
+            : "now";
         setPlayedDate(effectiveDate);
         setEditDate(new Date(effectiveDate));
 
         // Auto-save to DB
-        const saveRes = await apiRequest("POST", "/api/scores", {
+        stage = "save";
+        // Shared history size before this save (all users); undefined if not cached.
+        const cachedCount = queryClient.getQueryData<Score[]>(["/api/scores"])?.length;
+        const saveRes = await request("POST", "/api/scores", {
           uploaderName: displayNameRef.current,
           teamScore: data.teamScore,
           achievement: data.achievement || null,
@@ -276,7 +350,17 @@ export default function UploadScreen() {
         const newScore = await saveRes.json();
         setSavedId(newScore.id);
         queryClient.invalidateQueries({ queryKey: ["/api/scores"] });
-        analytics.track("score_saved");
+        const ageDays = (Date.now() - new Date(effectiveDate).getTime()) / 86_400_000;
+        // Saved before the user keeps or discards it: see score_discarded.
+        analytics.track("score_saved", {
+          score_id: newScore.id,
+          source,
+          played_date_source: playedDateSource,
+          played_date_age_days: Number.isFinite(ageDays) ? Math.floor(ageDays) : null,
+          duplicate_overridden: duplicateOverridden,
+          history_size: cachedCount !== undefined ? cachedCount + 1 : null,
+          ...gameplayProps(data),
+        });
         setResult(data);
       }
 
@@ -285,7 +369,21 @@ export default function UploadScreen() {
       }
     } catch (err) {
       console.error("Analysis error:", err);
-      analytics.track("score_parse_failed", { error: String(err) });
+      if (stage === "upload") {
+        analytics.track("image_upload_failed", { ext, bytes: byteCount, source, error: String(err) });
+      } else {
+        const status = err instanceof ApiError ? err.status : null;
+        analytics.track("score_parse_failed", {
+          stage: networkFailed ? "network" : stage,
+          status,
+          error: String(err),
+        });
+        // Neither an HTTP nor a network failure (e.g. a bad JSON body or a
+        // bug): also send the stack trace. 5xx are captured in apiRequest.
+        if (status === null && !networkFailed) {
+          analytics.captureException(err, { context: "analyze_image", stage });
+        }
+      }
       setResult({ teamScore: 0, gameName: "Unknown", players: [], error: "Failed to analyze image. Please try again." });
     } finally {
       setLoading(false);
@@ -302,24 +400,42 @@ export default function UploadScreen() {
           playerNames: Object.keys(updated).length > 0 ? updated : null,
         });
         queryClient.invalidateQueries({ queryKey: ["/api/scores"] });
-        analytics.track("player_names_updated");
-      } catch {}
+        analytics.track("player_names_updated", { location: "upload", score_id: savedId, color });
+      } catch (err) {
+        // Silent in the UI (the local label is kept), so report it.
+        if (!isCapturedApiError(err)) {
+          analytics.captureException(err, { context: "player_names_update", location: "upload", score_id: savedId });
+        }
+      }
     }
   };
+
+  // Shared props for score_kept / score_discarded.
+  const outcomeProps = () => ({
+    score_id: savedId,
+    had_warning: !!result?.warning,
+    names_edited_count: Object.keys(playerNames).length,
+    date_edited: dateEditedRef.current,
+  });
 
   const handleDiscard = async () => {
     if (savedId) {
       try {
         await apiRequest("DELETE", `/api/scores/${savedId}`);
         queryClient.invalidateQueries({ queryKey: ["/api/scores"] });
-        analytics.track("score_discarded");
-      } catch {}
+        analytics.track("score_discarded", outcomeProps());
+      } catch (err) {
+        // Silent in the UI (the modal closes anyway and the score stays saved).
+        if (!isCapturedApiError(err)) {
+          analytics.captureException(err, { context: "score_discard", score_id: savedId });
+        }
+      }
     }
     router.back();
   };
 
   const handleDone = () => {
-    analytics.track("score_kept", { scoreId: savedId ?? undefined });
+    analytics.track("score_kept", outcomeProps());
     router.back();
   };
 
@@ -331,7 +447,7 @@ export default function UploadScreen() {
 
   const confirmDuplicate = () => {
     analytics.track("duplicate_upload_confirmed");
-    analyzeImage(uri!, photoDate, fileName);
+    analyzeImage(uri!, photoDate, fileName, { duplicateOverridden: true });
   };
 
   // Date editing helpers
@@ -391,9 +507,11 @@ export default function UploadScreen() {
     }
 
     // No savedId means the auto-save failed; the edit stays local-only.
+    const deltaMinutes = Math.round((finalDate.getTime() - new Date(playedDate).getTime()) / 60000);
     setPlayedDate(iso);
     setEditingDate(false);
-    analytics.track("played_date_changed", { location: "upload", score_id: savedId });
+    dateEditedRef.current = true;
+    analytics.track("played_date_changed", { location: "upload", score_id: savedId, delta_minutes: deltaMinutes });
   };
 
   const formatDate = (iso: string) => {
