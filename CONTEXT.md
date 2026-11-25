@@ -267,6 +267,7 @@ Naming is `snake_case` `noun_verb`; property names are `snake_case` (all events 
 | `sign_in_requested` | Magic-link email sent | — |
 | `sign_in_failed` | `signInWithOtp` returns an error | `error` |
 | `signed_out` | Sign Out tapped (before `reset()`) | — |
+| `app_reloaded_for_update` | Web prod only (`lib/version-check.ts`): just before the page reloads onto a newer deploy (stale-bundle guard), or after a "Legacy API keys are disabled" auth error. Flushed (≤500 ms) before reload | `reason` (`new_bundle`\|`legacy_key_error`), `from_entry` (loaded `/_expo/static/js/web/entry-*.js` path), `to_entry` (newer entry path; null for `legacy_key_error`) |
 | `display_name_set` | Initial display-name setup completed | — |
 | `tab_pressed` | Bottom tab tapped (History/Profile) | `tab` |
 | `add_score_fab_pressed` | Center FAB tapped | `platform` |

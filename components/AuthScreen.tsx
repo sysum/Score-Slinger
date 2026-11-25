@@ -15,6 +15,7 @@ import * as Linking from "expo-linking";
 import { useTheme } from "@/contexts/ThemeContext";
 import { supabase } from "@/lib/supabase";
 import { analytics } from "@/lib/analytics";
+import { checkForUpdate, reloadOnLegacyKeyError } from "@/lib/version-check";
 
 // ─── Auth method registry ─────────────────────────────────────────────────────
 // To add a new sign-in method (e.g. email+password), create a new component
@@ -103,6 +104,10 @@ function MagicLinkForm({
     setLoading(true);
     setError(null);
 
+    // Web: if a newer deploy exists, reload first so the request uses the
+    // current Supabase key (keeps the spinner up while the page reloads).
+    if (await checkForUpdate({ force: true })) return;
+
     // Redirect back to the app after clicking the magic link.
     // On native this opens the app via the scoreslinger:// deep link scheme.
     // On web it redirects back to the current origin.
@@ -115,6 +120,9 @@ function MagicLinkForm({
       email: trimmed,
       options: { emailRedirectTo: redirectTo, shouldCreateUser: false },
     });
+
+    // A stale bundle with a retired key baked in: reload instead of erroring.
+    if (authError && (await reloadOnLegacyKeyError(authError.message))) return;
 
     setLoading(false);
 

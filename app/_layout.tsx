@@ -25,6 +25,12 @@ import * as Linking from "expo-linking";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "@/lib/supabase";
 import { analytics } from "@/lib/analytics";
+import {
+  checkForUpdate,
+  setVersionCheckPathname,
+  setVersionCheckSignedIn,
+  startVersionCheck,
+} from "@/lib/version-check";
 import AuthScreen from "@/components/AuthScreen";
 import type { Session } from "@supabase/supabase-js";
 import {
@@ -173,6 +179,11 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     // getSession() call isn't needed (it caused a duplicate identify).
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setSession(session);
+      setVersionCheckSignedIn(!!session);
+      // supabase-js doesn't surface refresh errors: a failed refresh (e.g. a
+      // stale bundle's disabled legacy key) just emits SIGNED_OUT. Check for a
+      // newer deploy right away; the auth screen is always safe to reload.
+      if (event === "SIGNED_OUT") void checkForUpdate({ force: true });
       const user = session?.user;
       if (!user) {
         // Also covers session expiry and sign-out from another tab. Profile's
@@ -285,6 +296,7 @@ function RootLayoutNav() {
   useEffect(() => {
     const { name, props } = screenFromPathname(pathname);
     analytics.screen(name, props);
+    setVersionCheckPathname(pathname);
   }, [pathname]);
 
   return (
@@ -316,6 +328,9 @@ export default function RootLayout() {
       SplashScreen.hideAsync();
     }
   }, [fontsLoaded]);
+
+  // Web prod only: reload long-lived tabs onto a newer deploy (no-op elsewhere).
+  useEffect(() => startVersionCheck(), []);
 
   if (!fontsLoaded) return null;
 
