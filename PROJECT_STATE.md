@@ -12,21 +12,18 @@ No major initiative in flight. The app is healthy and in production; the depende
 
 ## In Progress
 
-### Parse prompt: colors by panel, not position (branch `fix/parse-colors-by-panel`, 2026-11-24)
+### PostHog Phase 1: foundation (branch `feat/posthog-foundation`, 2026-11-24 — in review)
 
-**Bug:** the `/api/parse-score` prompt hard-coded player colors by panel position (blue top-left, yellow bottom-left, red top-right, purple bottom-right). The physical layout varies by ride vehicle — 3 of the 5 prod boards (Aug 25 2025, Sep 29 2025, Oct 27 2026) are yellow TL / blue BL / purple TR / red BR — so the model read the numbers right but swapped colors within a column. On those boards the top panel of each column has **white** digits, so color must come from the panel background/frame.
+First phase of the PostHog user-behavior plan (Phase 2 — taxonomy, `score_id` rename, team scores/colors, dashboards — follows).
 
-**Fix:** prompt moved to `server/parsePrompt.ts` (system prompt, user text, model, `buildParseRequest`, `extractParsedJson`, `checkParsedScore`) so offline validation can exercise the exact production request. Prompt now derives color only from each panel's background/digit color and says positions vary; each player gets a `position` field (traceability, stored in `players` JSONB; `Score.players[].position?` is optional). JSON mode (`response_format: json_object`) on, regex extraction kept as fallback. Post-parse sanity checks (4 players, colors exactly {blue,yellow,red,purple}; players + 3 objectives === teamScore) `console.warn` and add a `warning` string to the response — they never block the save. **Note:** a within-column color swap passes both sanity checks (same set of colors, same sum), so they can't catch this specific bug — only the prompt fix does.
+- **Client options** (`lib/analytics.ts`): `flushAt` 1 dev / 5 prod, `flushInterval` 5s (CONTEXT.md previously said the default was 30s; it's 10s), `preloadFeatureFlags: false`, `disableSurveys: true`, lifecycle events on, error autocapture for uncaught exceptions (native) + unhandled rejections, console capture off. `EXPO_PUBLIC_POSTHOG_DEBUG=true` → `posthog.debug(true)`.
+- **Super props:** `platform`, `environment`, `app_version`, `commit`. `analytics.reset()` re-registers them because `reset()` wipes them. `vercel.json`'s build command now passes `EXPO_PUBLIC_VERCEL_ENV` / `EXPO_PUBLIC_COMMIT_SHA` from the Vercel system vars.
+- **Identify fix** (`app/_layout.tsx` AuthGate): previously `identify` ran twice on every load (`getSession` + `INITIAL_SESSION`) and `signed_in` fired on every auth event that carried a session (INITIAL_SESSION, TOKEN_REFRESHED, USER_UPDATED…). Now there's one listener, identify runs once per app run per user with `$set { email, display_name }` + `$set_once { first_seen_at }`, and `signed_in { method, platform }` fires only when PostHog's distinct ID goes from anonymous to the user. **Decision:** we don't key it on Supabase's `SIGNED_IN` event, because supabase-js 2.106 also emits `SIGNED_IN` when it restores a stored session and on every web tab refocus, and the web magic-link `SIGNED_IN` can fire before the listener subscribes. `display_name` changes go to the person via `setPersonProperties`. `SIGNED_OUT` now also resets PostHog (covers expiry and other-tab sign-out).
+- **Screens:** one `usePathname()` effect in `RootLayoutNav` → `history`, `profile`, `upload`, `score/[id]` (+ `score_id`). `auth` / `display_name_setup` fire on mount. The one-off detail-screen `screen()` call was removed.
+- **Errors:** root `ErrorBoundary` `onError` → `captureException(error, { component_stack })`.
+- **User decisions:** store email + display name on persons (yes); no internal-user filtering; session replay deferred; lifecycle defaults kept; the `scoreId` → `score_id` prop rename is Phase 2.
 
-**Validation (live OpenAI, 5 prod images, ground truth checked by eye + sum):** old prompt on Oct 27 → red/purple swapped in 3/3 runs (reproduces the bug). New prompt + `gpt-4o-mini` → colors 25/25 correct, but Aug 25's glare-washed "Rescue Spider-Man" 37,000 misread as 70,000/77,000/70,700 in 5/5 runs (the sum check flagged every one). New prompt + `gpt-4.1-mini` → 25/25 exact on every field; `gpt-4o` → 5/5 exact on Aug 25. **Switched production model to `gpt-4.1-mini`** — most accurate and cheapest per photo (~6k input tokens vs ~26k for 4o-mini, which bills images at a high token multiplier).
-
-**Status:** code complete, validated, tsc/lint clean; in review as PR #10. Prod rows Aug 25, Sep 29 and Oct 27 have been corrected by hand.
-
-### Post-deploy follow-ups (branch `fix/post-deploy-followups`, 2026-11-24)
-
-- **Blank player names:** the prompt schema said `"name": "<player name or identifier>"`; the board shows no names, so `gpt-4.1-mini` could return `""` and the UI (which falls back to `player.name`) rendered blank labels. Prompt now asks for the capitalized color name, and `normalizePlayerNames()` (in `server/parsePrompt.ts`, called in `/api/parse-score` before the sanity checks) fills any missing/blank name with the capitalized color. Re-validated live (gpt-4.1-mini, 3 runs x 5 boards): all fields exact, names returned as color names every time.
-- **DELETE race:** `DELETE /api/scores/:id` no longer uses `.single()` on the delete step; 0 rows deleted returns 404 `Score not found` (no error log) instead of a 500 from PGRST116. Client-side delete UX followed in `feat/delete-feedback` (see Recently Completed → Delete confirmation feedback).
-- **Docs:** prod `SUPABASE_SERVICE_ROLE_KEY` is now a Supabase secret key (`sb_secret_…`) stored as a Vercel Secret; variable name kept for compatibility, code unchanged. Docs reworded accordingly. (The follow-on client-key swap and legacy-key disable are complete — see Recently Completed → Supabase API key migration.)
+**Status:** tsc/lint clean, web bundle compiles, Non-Prod ingestion verified (`/flags` 200, test event 200). Needs a manual click-through against PostHog Non-Prod (checklist in the hand-off).
 
 ---
 
@@ -42,13 +39,29 @@ No major initiative in flight. The app is healthy and in production; the depende
 
 **Verified:** tsc 0 errors, lint 0 problems; web dev bundle compiles; local API DELETE on the same score returned 200 then 404. Not yet clicked through by hand — see the manual checklist in the PR/hand-off.
 
-### Persist edited played date (branch `fix/persist-played-date`, 2026-11-24 — in review)
+### Persist edited played date (PR #14, merged 2026-11-24)
 
 **Bug (data loss):** `app/upload.tsx` auto-saves the score (`POST /api/scores`) right after a successful parse, then the result screen lets the user edit the played date. `saveDateEdit` only updated local state and fired `played_date_changed` — nothing reached the server and there was no route to update `played_date`, so **every edited played date was silently lost**.
 
 **Fix:** new `PATCH /api/scores/:id/played-date` (`{ playedDate }`): 400 `Invalid playedDate` if missing/unparseable; stored normalized via `toISOString()` (column is TEXT holding ISO strings); ownership mirrors DELETE (fetch `user_id` → 404 missing, 403 not the uploader); update uses `.select()` without `.single()` and treats 0 rows as 404 (same race-safe pattern as the DELETE fix). Client: when `savedId` exists, `saveDateEdit` PATCHes the date — Save shows a spinner + "Saving…", both buttons and the overlay are disabled, and a `useRef` guard blocks re-entry (pattern mirrors the `feat/delete-feedback` delete hook). Success → update local state, close modal, invalidate `["/api/scores"]`. Failure → modal stays open with inline error "Couldn't save the date — check your connection and try again.", previous date kept, buttons re-enabled. If `savedId` is null (auto-save failed) the edit stays local-only as before. Analytics: `played_date_changed` now carries `{ location: "upload", score_id }`; new `played_date_change_failed { location, score_id, error }`. `score_id` (snake_case) is the agreed prop convention going forward.
 
 **Verified (local Supabase):** PATCH → 200 and `GET /api/scores` shows the normalized ISO value; invalid/missing/non-string date → 400; unknown id (UUID and non-UUID) → 404; no token → 401; second local user PATCHing dev's score → 403 and the value is unchanged. tsc 0 errors, `expo lint` clean, web bundle compiles.
+
+### Parse prompt: colors by panel, not position (PR #10, merged 2026-11-24)
+
+**Bug:** the `/api/parse-score` prompt hard-coded player colors by panel position (blue top-left, yellow bottom-left, red top-right, purple bottom-right). The physical layout varies by ride vehicle — 3 of the 5 prod boards (Aug 25 2025, Sep 29 2025, Oct 27 2026) are yellow TL / blue BL / purple TR / red BR — so the model read the numbers right but swapped colors within a column. On those boards the top panel of each column has **white** digits, so color must come from the panel background/frame.
+
+**Fix:** prompt moved to `server/parsePrompt.ts` (system prompt, user text, model, `buildParseRequest`, `extractParsedJson`, `checkParsedScore`) so offline validation can exercise the exact production request. Prompt now derives color only from each panel's background/digit color and says positions vary; each player gets a `position` field (traceability, stored in `players` JSONB; `Score.players[].position?` is optional). JSON mode (`response_format: json_object`) on, regex extraction kept as fallback. Post-parse sanity checks (4 players, colors exactly {blue,yellow,red,purple}; players + 3 objectives === teamScore) `console.warn` and add a `warning` string to the response — they never block the save. **Note:** a within-column color swap passes both sanity checks (same set of colors, same sum), so they can't catch this specific bug — only the prompt fix does.
+
+**Validation (live OpenAI, 5 prod images, ground truth checked by eye + sum):** old prompt on Oct 27 → red/purple swapped in 3/3 runs (reproduces the bug). New prompt + `gpt-4o-mini` → colors 25/25 correct, but Aug 25's glare-washed "Rescue Spider-Man" 37,000 misread as 70,000/77,000/70,700 in 5/5 runs (the sum check flagged every one). New prompt + `gpt-4.1-mini` → 25/25 exact on every field; `gpt-4o` → 5/5 exact on Aug 25. **Switched production model to `gpt-4.1-mini`** — most accurate and cheapest per photo (~6k input tokens vs ~26k for 4o-mini, which bills images at a high token multiplier).
+
+**Status:** shipped and verified in production (real re-uploads of the Oct 27 and Aug 25 boards parsed exactly). Prod rows Aug 25, Sep 29 and Oct 27 were corrected by hand.
+
+### Post-deploy follow-ups (PR #11, merged 2026-11-24)
+
+- **Blank player names:** the prompt schema said `"name": "<player name or identifier>"`; the board shows no names, so `gpt-4.1-mini` could return `""` and the UI (which falls back to `player.name`) rendered blank labels. Prompt now asks for the capitalized color name, and `normalizePlayerNames()` (in `server/parsePrompt.ts`, called in `/api/parse-score` before the sanity checks) fills any missing/blank name with the capitalized color. Re-validated live (gpt-4.1-mini, 3 runs x 5 boards): all fields exact, names returned as color names every time.
+- **DELETE race:** `DELETE /api/scores/:id` no longer uses `.single()` on the delete step; 0 rows deleted returns 404 `Score not found` (no error log) instead of a 500 from PGRST116. Client-side delete UX followed in PR #13 (see Delete confirmation feedback).
+- **Docs:** prod `SUPABASE_SERVICE_ROLE_KEY` is now a Supabase secret key (`sb_secret_…`) stored as a Vercel Secret; variable name kept for compatibility, code unchanged. Docs reworded accordingly. (The follow-on client-key swap and legacy-key disable are complete — see Recently Completed → Supabase API key migration.)
 
 ### Supabase API key migration (2026-11-24)
 

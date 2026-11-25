@@ -180,7 +180,8 @@ lib/
   query-client.ts       getApiUrl(), apiRequest(), getQueryFn(), QueryClient; non-2xx responses
                         throw ApiError (`.status`, message "<status>: <body>")
 
-  analytics.ts          PostHog wrapper — identify/track/screen/reset; null-safe (no-op if key missing)
+  analytics.ts          PostHog wrapper — client options, super props, identifyUser/track/screen/
+                        captureException/setPersonProperties/reset; null-safe (no-op if key missing)
 
 server/
 
@@ -236,16 +237,23 @@ vercel.json             Build command, output dir, /api/\* routing
 ### Vercel
 
 - Production URL: `https://www.slingers.app`  
-- Static web export (`npx expo export --platform web`) served from `dist/`  
+- Static web export (`npx expo export --platform web`) served from `dist/`. The `vercel.json` build command prefixes it with `EXPO_PUBLIC_VERCEL_ENV=$VERCEL_ENV EXPO_PUBLIC_COMMIT_SHA=$VERCEL_GIT_COMMIT_SHA` so the PostHog `environment` / `commit` super props get baked in (Vercel system vars aren't `EXPO_PUBLIC_*`, so Expo wouldn't inline them otherwise)  
 - `/api/*` routed to `api/index.ts` (Hono serverless function)  
 - `EXPO_PUBLIC_*` vars must be set in Vercel dashboard and are baked into the build at compile time — **changing them requires a fresh redeploy with no build cache**
 
 ### PostHog
 
-- Client-side product analytics via `posthog-react-native`, wrapped in `lib/analytics.ts` (`identify` / `track` / `screen` / `reset`). The wrapper is **null-safe** — every call is a no-op when `EXPO_PUBLIC_POSTHOG_KEY` is unset.  
+- Client-side product analytics via `posthog-react-native` (4.46.x), wrapped in `lib/analytics.ts` (`identifyUser` / `track` / `screen` / `captureException` / `setPersonProperties` / `reset`). The wrapper is **null-safe** — every call is a no-op when `EXPO_PUBLIC_POSTHOG_KEY` is unset. Bare client only — **no `PostHogProvider`** (its screen autocapture doesn't work with expo-router).  
 - Host defaults to `https://us.i.posthog.com`; override with `EXPO_PUBLIC_POSTHOG_HOST` (set it to `https://eu.i.posthog.com` if the project is in the EU region — a wrong region returns `401` on `/flags/` and silently drops events).  
 - Events fire **browser/app → PostHog directly** (they do not pass through the Hono server, so they never appear in server logs).  
-- The RN SDK batches: it flushes at 20 queued events, every 30s, or on app-background. In local dev with few events, expect a delay before they appear in PostHog's Activity view.  
+- **Batching:** `flushAt` is 1 in dev (every event sends immediately) and 5 in prod, `flushInterval` 5s, plus a flush on every app-state change. (SDK defaults are 20 events / 10s.) `preloadFeatureFlags: false` and `disableSurveys: true` — neither is used, so their round-trips are skipped. `captureAppLifecycleEvents` stays on (the default lifecycle events listed under the catalog).  
+- **Super properties** (`register()`, on every event): `platform` (`Platform.OS`), `environment` (`EXPO_PUBLIC_VERCEL_ENV` — `production`/`preview` on Vercel — else `development` in dev / `production`), `app_version` (`expoConfig.version`), `commit` (first 7 chars of `EXPO_PUBLIC_COMMIT_SHA`, Vercel builds only). `reset()` wipes super props, so `analytics.reset()` re-registers them.  
+- **Identify / person properties:** `AuthGate` (`app/_layout.tsx`) identifies once per app run per user from the `onAuthStateChange` listener (no separate `getSession()` call — `INITIAL_SESSION` covers it), with `$set: { email, display_name }` and `$set_once: { first_seen_at }`. Email and display name are stored on person profiles by decision. `display_name` is re-set via `setPersonProperties` when it's first set (`DisplayNameSetup`) or changed (Profile). `SIGNED_OUT` (incl. expiry / another tab) and Profile's Sign Out both call `analytics.reset()`.  
+- **`signed_in` detection:** fires only when PostHog's persisted distinct ID changes from anonymous to the user (`identifyUser()` resolves `true`) — i.e. a real sign-in, never a reload, token refresh, `USER_UPDATED`, or web tab refocus. It is deliberately **not** keyed on the Supabase `SIGNED_IN` event: Supabase also emits `SIGNED_IN` when restoring a stored session and on every web tab refocus, and the web magic-link `SIGNED_IN` can fire before the listener subscribes.  
+- **Screen tracking:** `RootLayoutNav` calls `analytics.screen()` whenever expo-router's `usePathname()` changes. Names = route path without the leading slash, `/` → `history`, dynamic segments as their pattern: `history`, `profile`, `upload`, `score/[id]` (prop `score_id`). `AuthScreen` and `DisplayNameSetup` render outside the Stack and fire `auth` / `display_name_setup` on mount. Don't add per-screen `analytics.screen()` calls elsewhere (double counting).  
+- **Error capture:** the root `<ErrorBoundary onError>` sends caught render errors via `captureException(error, { component_stack })`. SDK autocapture: `uncaughtExceptions` (RN `ErrorUtils` — native only) and `unhandledRejections` on, `console` off (explicit `*_failed` events already cover handled errors). Autocapture is ignored if the PostHog project's remote config disables exception autocapture (Project settings → Error tracking).  
+- **Deliberately off:** session replay (deferred), and internal-user filtering (the owner's own usage is kept).  
+- `EXPO_PUBLIC_POSTHOG_DEBUG=true` turns on SDK debug logging (`posthog.debug(true)`).  
 - **Local dev + preview use the Non-Prod PostHog project's key; only production uses the prod key.**
 
 #### Event catalog
@@ -254,7 +262,7 @@ Naming is `snake_case` `noun_verb`. To add an event, call `analytics.track("name
 
 | Event | Fires when | Properties |
 | :---- | :---- | :---- |
-| `signed_in` | Auth session becomes active | — |
+| `signed_in` | Real sign-in only: a session appears for a user PostHog hasn't identified on this device (not on reload / token refresh) | `method` (`magic_link`), `platform` |
 | `sign_in_requested` | Magic-link email sent | — |
 | `sign_in_failed` | `signInWithOtp` returns an error | `error` |
 | `signed_out` | Sign Out tapped (before `reset()`) | — |
@@ -298,7 +306,14 @@ Naming is `snake_case` `noun_verb`. To add an event, call `analytics.track("name
 | `display_name_edit_started` | Display-name edit opened in Profile | — |
 | `display_name_changed` | Display name saved in Profile | — |
 
-Plus `analytics.identify(userId, { email, name })` on sign-in, `analytics.screen("/score/:id")` on detail view, and `analytics.reset()` on sign-out.
+SDK / automatic events (not from `track()`):
+
+- `$identify` (or `$set` when re-identifying the same user) — from `analytics.identifyUser()`; person props `email`, `display_name`, `first_seen_at`. `analytics.setPersonProperties({ display_name })` also emits `$set`.
+- `$screen` — `$screen_name` is one of `history`, `profile`, `upload`, `score/[id]` (+ `score_id`), `auth`, `display_name_setup` (see Screen tracking above).
+- `$exception` — `ErrorBoundary` render errors (`component_stack`) plus SDK autocapture (uncaught errors on native, unhandled promise rejections).
+- `Application Opened` / `Application Became Active` / `Application Backgrounded` / `Application Installed` / `Application Updated` — lifecycle defaults.
+
+`analytics.reset()` runs on sign-out. Existing event props still use `scoreId` (camelCase); the rename to `score_id` is planned for PostHog Phase 2.
 
 ---
 

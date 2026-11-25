@@ -1,7 +1,7 @@
 import { QueryClientProvider } from "@tanstack/react-query";
-import { Stack } from "expo-router";
+import { Stack, usePathname } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   Pressable,
   ActivityIndicator,
   StyleSheet,
+  Platform,
 } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
@@ -48,6 +49,11 @@ function DisplayNameSetup({ onSave }: { onSave: (name: string) => void }) {
   const { colors, isDark } = useTheme();
   const insets = useSafeAreaInsets();
   const [input, setInput] = useState("");
+
+  // Rendered above the Stack (no pathname), so track the screen manually.
+  useEffect(() => {
+    analytics.screen("display_name_setup");
+  }, []);
 
   const handleSave = () => {
     const trimmed = input.trim();
@@ -158,27 +164,40 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null | undefined>(undefined);
   const [displayName, setDisplayName] = useState<string | null>(null);
   const [displayNameLoaded, setDisplayNameLoaded] = useState(false);
+  // User already identified to PostHog in this app run. The listener also
+  // fires on TOKEN_REFRESHED, USER_UPDATED, web tab refocus, etc.
+  const identifiedUserId = useRef<string | null>(null);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    // onAuthStateChange emits INITIAL_SESSION on subscribe, so a separate
+    // getSession() call isn't needed (it caused a duplicate identify).
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setSession(session);
-      if (session?.user) {
-        analytics.identify(session.user.id, {
-          email: session.user.email,
-          name: session.user.user_metadata?.display_name as string | undefined,
-        });
+      const user = session?.user;
+      if (!user) {
+        // Also covers session expiry and sign-out from another tab. Profile's
+        // sign-out resets first; a second reset is harmless.
+        if (event === "SIGNED_OUT" && identifiedUserId.current) analytics.reset();
+        identifiedUserId.current = null;
+        return;
       }
-    });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      if (session?.user) {
-        analytics.identify(session.user.id, {
-          email: session.user.email,
-          name: session.user.user_metadata?.display_name as string | undefined,
+      if (identifiedUserId.current === user.id) return;
+      identifiedUserId.current = user.id;
+      // Not keyed on event === "SIGNED_IN": Supabase also emits SIGNED_IN when
+      // it restores a stored session (and on every web tab refocus), and the
+      // web magic-link SIGNED_IN can fire before this listener subscribes.
+      // A new PostHog identity (anonymous → user) is the reliable signal.
+      analytics
+        .identifyUser({
+          id: user.id,
+          email: user.email,
+          displayName: user.user_metadata?.display_name as string | undefined,
+        })
+        .then((isNewIdentity) => {
+          if (isNewIdentity) {
+            analytics.track("signed_in", { method: "magic_link", platform: Platform.OS });
+          }
         });
-        analytics.track("signed_in");
-      }
     });
 
     return () => subscription.unsubscribe();
@@ -224,6 +243,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     setDisplayName(name);
     await AsyncStorage.setItem("display_name", name);
     supabase.auth.updateUser({ data: { display_name: name } });
+    analytics.setPersonProperties({ display_name: name });
     analytics.track("display_name_set");
   };
 
@@ -248,7 +268,25 @@ function AuthGate({ children }: { children: React.ReactNode }) {
 
 // ─── Root layout ──────────────────────────────────────────────────────────────
 
+// Screen names are the route path without its leading slash, with "/" →
+// "history" and dynamic segments as their pattern ("score/[id]", with the id
+// as a score_id prop). AuthScreen and DisplayNameSetup render outside the
+// Stack and track themselves ("auth" / "display_name_setup").
+function screenFromPathname(pathname: string): { name: string; props?: Record<string, string> } {
+  if (pathname === "/") return { name: "history" };
+  const score = pathname.match(/^\/score\/([^/]+)$/);
+  if (score) return { name: "score/[id]", props: { score_id: score[1] } };
+  return { name: pathname.replace(/^\//, "") };
+}
+
 function RootLayoutNav() {
+  const pathname = usePathname();
+
+  useEffect(() => {
+    const { name, props } = screenFromPathname(pathname);
+    analytics.screen(name, props);
+  }, [pathname]);
+
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="(tabs)" />
@@ -282,7 +320,11 @@ export default function RootLayout() {
   if (!fontsLoaded) return null;
 
   return (
-    <ErrorBoundary>
+    <ErrorBoundary
+      onError={(error, componentStack) =>
+        analytics.captureException(error, { component_stack: componentStack })
+      }
+    >
       <QueryClientProvider client={queryClient}>
         <ThemeProvider>
           <GestureHandlerRootView style={{ flex: 1 }}>

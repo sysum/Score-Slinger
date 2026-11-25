@@ -106,6 +106,7 @@ export default function ProfileScreen() {
     setEditingName(false);
     await AsyncStorage.setItem("display_name", trimmed);
     supabase.auth.updateUser({ data: { display_name: trimmed } });
+    analytics.setPersonProperties({ display_name: trimmed });
     analytics.track("display_name_changed");
   };
 

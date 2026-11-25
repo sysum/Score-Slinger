@@ -180,10 +180,6 @@ export default function ScoreDetailScreen() {
     AsyncStorage.getItem("display_name").then((n) => { if (n) setDisplayName(n); });
   }, []);
 
-  useEffect(() => {
-    if (id) analytics.screen(`/score/${id}`);
-  }, [id]);
-
   const updatePlayerName = async (color: string, name: string) => {
     const updated = { ...playerNames, [color]: name || undefined } as Record<string, string>;
     if (!name) delete updated[color];
