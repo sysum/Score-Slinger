@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   View,
   Text,
@@ -284,6 +284,8 @@ export default function HistoryScreen() {
   const [sortOption, setSortOption] = useState<SortOption>("upload_recent");
   const [showSortPicker, setShowSortPicker] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const deleteInFlight = useRef(false);
   const [refreshing, setRefreshing] = useState(false);
   const [displayName, setDisplayName] = useState("");
 
@@ -308,12 +310,17 @@ export default function HistoryScreen() {
   };
 
   const confirmDelete = async () => {
-    if (!pendingDeleteId) return;
+    // Ref guard: a fast double-tap can fire twice before state re-renders.
+    if (!pendingDeleteId || deleteInFlight.current) return;
+    deleteInFlight.current = true;
+    setIsDeleting(true);
     try {
       await apiRequest("DELETE", `/api/scores/${pendingDeleteId}`);
       queryClient.invalidateQueries({ queryKey: ["/api/scores"] });
       analytics.track("score_deleted", { source: "history", scoreId: pendingDeleteId });
     } catch {}
+    deleteInFlight.current = false;
+    setIsDeleting(false);
     setPendingDeleteId(null);
   };
 
@@ -414,7 +421,8 @@ export default function HistoryScreen() {
               </Pressable>
               <Pressable
                 onPress={confirmDelete}
-                style={({ pressed }) => [styles.modalDeleteBtn, { backgroundColor: colors.danger }, pressed && { opacity: 0.7 }]}
+                disabled={isDeleting}
+                style={({ pressed }) => [styles.modalDeleteBtn, { backgroundColor: colors.danger }, (pressed || isDeleting) && { opacity: 0.7 }]}
               >
                 <Text style={styles.modalDeleteText}>Delete</Text>
               </Pressable>

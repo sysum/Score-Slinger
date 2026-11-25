@@ -66,7 +66,7 @@ cp .env.example .env
 |---|---|
 | `OPENAI_API_KEY` | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) |
 | `SUPABASE_URL` | Supabase → Project Settings → API → Project URL |
-| `SUPABASE_SERVICE_ROLE_KEY` | Supabase → Project Settings → API → `service_role` key |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server-only, bypasses RLS. Prod: a Supabase **secret key** (`sb_secret_…`, Project Settings → API Keys), stored as a Vercel Secret — the variable name is kept for compatibility. Local: the service-role demo key from `supabase status -o env` |
 | `EXPO_PUBLIC_SUPABASE_URL` | Same as `SUPABASE_URL` |
 | `EXPO_PUBLIC_SUPABASE_ANON_KEY` | Supabase → Project Settings → API → `anon` / public key |
 | `EXPO_PUBLIC_DOMAIN` | `localhost:5055` for local dev — no `https://` prefix |

@@ -88,7 +88,7 @@ Score Slinger is a mobile \+ web app for logging scores from theme park ride gam
 
 │   ├── index.ts          \# Local dev entry point (@hono/node-server, port 5055\)
 
-│   └── supabase.ts       \# Server-side Supabase admin client (service role key — never expose)
+│   └── supabase.ts       \# Server-side Supabase admin client (secret key in prod / service-role demo key locally — never expose)
 
 ├── shared/
 
@@ -192,7 +192,7 @@ See `.env.example` for the full list.
 
 - `EXPO_PUBLIC_*` — safe for the client (Expo app), bundled into the app build  
 - Everything else — server-only, set in Vercel dashboard for production
-- **Local `.env` points at the local Supabase stack** (`SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_URL` = `http://127.0.0.1:54321`; service role + anon keys from `supabase status -o env` — well-known local demo keys, not secrets). Prod values live in `.env.prod-reference` (gitignored; never commit). Switching to prod is a deliberate `cp .env.prod-reference .env`. `OPENAI_API_KEY` and the Non-Prod PostHog key are unchanged.
+- **Local `.env` points at the local Supabase stack** (`SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_URL` = `http://127.0.0.1:54321`; service-role + anon keys from `supabase status -o env` — well-known local demo keys, not secrets). Prod values live in `.env.prod-reference` (gitignored; never commit). Switching to prod is a deliberate `cp .env.prod-reference .env`. `OPENAI_API_KEY` and the Non-Prod PostHog key are unchanged.
 
 ### Required variables
 

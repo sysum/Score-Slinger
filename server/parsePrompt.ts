@@ -40,7 +40,7 @@ Return ONLY valid JSON with this exact structure:
   "gameName": "<detected game name or 'Unknown'>",
   "players": [
     {
-      "name": "<player name or identifier>",
+      "name": "<the player's color name, capitalized, e.g. Blue — the board shows no player names>",
       "score": <number>,
       "color": "<one of: blue, yellow, red, purple — taken from the panel's own color, never its position>",
       "position": "<one of: top-left, bottom-left, top-right, bottom-right — where this panel is on screen>"
@@ -99,6 +99,21 @@ export function extractParsedJson(content: string): Record<string, unknown> | nu
   } catch {
     return null;
   }
+}
+
+// The board shows no player names, and the model may still return "" (or omit
+// the field) for `name`. Fill any missing/blank name with the capitalized color
+// ("Yellow") so the UI never renders a blank label. Mutates and returns `parsed`.
+export function normalizePlayerNames(parsed: Record<string, unknown>): Record<string, unknown> {
+  if (!Array.isArray(parsed.players)) return parsed;
+  for (const player of parsed.players as { name?: unknown; color?: unknown }[]) {
+    if (!player || typeof player !== "object") continue;
+    const name = typeof player.name === "string" ? player.name.trim() : "";
+    const color = typeof player.color === "string" ? player.color.trim().toLowerCase() : "";
+    if (name) continue;
+    if (color) player.name = color.charAt(0).toUpperCase() + color.slice(1);
+  }
+  return parsed;
 }
 
 // Sanity checks on a parsed scoreboard. Returns a list of human-readable

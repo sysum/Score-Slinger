@@ -5,7 +5,7 @@ import type { User } from "@supabase/supabase-js";
 import OpenAI from "openai";
 import exifParser from "exif-parser";
 import { supabaseAdmin } from "./supabase";
-import { buildParseRequest, checkParsedScore, extractParsedJson } from "./parsePrompt";
+import { buildParseRequest, checkParsedScore, extractParsedJson, normalizePlayerNames } from "./parsePrompt";
 import type { Score } from "../shared/schema";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -114,7 +114,7 @@ app.post("/api/parse-score", async (c) => {
     let parsed: Record<string, unknown>;
     const extracted = extractParsedJson(content);
     if (extracted) {
-      parsed = extracted;
+      parsed = normalizePlayerNames(extracted);
       const problems = checkParsedScore(parsed);
       if (problems.length > 0) {
         console.warn("Parsed score failed sanity checks:", problems, "Parsed:", JSON.stringify(parsed));
@@ -267,11 +267,11 @@ app.delete("/api/scores/:id", async (c) => {
       .from("scores")
       .delete()
       .eq("id", id)
-      .select()
-      .single();
+      .select("id");
 
     if (error) throw error;
-    if (!data) return c.json({ error: "Score not found" }, 404);
+    // A concurrent DELETE (e.g. double-tap) may already have removed the row.
+    if (!data || data.length === 0) return c.json({ error: "Score not found" }, 404);
     return c.json({ success: true });
   } catch (error: unknown) {
     console.error("Error deleting score:", error);
