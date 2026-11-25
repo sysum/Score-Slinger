@@ -1,6 +1,6 @@
 # Score Slinger — Project State
 
-Last updated: 2026-07-23
+Last updated: 2026-11-24
 
 ---
 
@@ -12,11 +12,17 @@ No major initiative in flight. The app is healthy and in production; the depende
 
 ## In Progress
 
-Nothing actively in progress. `main` is clean and deployed.
+Local Supabase workflow is on branch `feat/local-supabase` (not yet merged). `main` is clean and deployed.
 
 ---
 
 ## Recently Completed (shipped to `main`)
+
+### Local Supabase dev workflow (branch `feat/local-supabase`, 2026-11-24)
+
+Local dev now runs against a local Supabase stack (Supabase CLI 2.117.0 + Docker) instead of the prod project. Before, the local `.env` pointed at prod, so local testing wrote real prod data. New scripts: `npm run db:start` / `db:stop` / `db:reset` / `db:status` (`db:start` is not chained into `npm run dev` — cold start ~30s). Local endpoints: API `127.0.0.1:54321`, Postgres `54322`, Studio `54323`, Mailpit `54324` (magic-link inbox). `supabase/config.toml` sets invite-only auth (`enable_signup = false`, site_url `http://localhost:8081`, redirects `http://localhost:8081/**` + `scoreslinger://**`); `supabase/seed.sql` creates confirmed test user `dev@local.test` plus 2 fake scores. Prod env values moved to gitignored `.env.prod-reference` (deliberately not an Expo-recognised name, so `expo export` can't bake prod into a local build); `.env` holds local values.
+
+**Schema drift fixed:** the schema now lives in `supabase/migrations/` (`20260101000000_scores_table.sql`, `20260101000001_storage_bucket_and_policies.sql`), mirroring live prod exactly. The old `01_scores_table.sql` / `02_storage_policies.sql` were removed — they would not have built a correct schema: `user_id text references auth.users(id)` (text→uuid FK fails; prod has no FK), `played_date timestamptz` (prod is `text`), missing `game_name default 'Unknown'`, and differing storage policy names. The bucket is now created in SQL. Prod baseline at the time: `public.scores` 5 rows, 33 storage objects in `scores` (more objects than rows → orphaned images from discarded uploads).
 
 ### App logo (PR #7, merged 2026-07-23)
 
@@ -55,6 +61,10 @@ Replaced the monolithic `app/index.tsx` (~1800 lines, conditional renders) with 
 ---
 
 ## Decisions Made
+
+### Local Supabase over a cloud non-prod project; migrations as schema source of truth (2026-11-24)
+
+The Supabase org ("Sam's Org") is on the Pro plan, where every project bills compute (~$10/mo); a paid non-prod project was declined. A local stack is $0 and fully isolated, and mirrors the PostHog Non-Prod split in spirit. `supabase/migrations/` is now the schema source of truth. New migrations: `supabase migration new <name>`, test with `npm run db:reset`, then apply to prod via the dashboard SQL Editor (or Supabase MCP `apply_migration`) — prod's existing schema predates the migrations folder. Optional drift check later: `supabase link --project-ref <ref> && supabase db diff --linked`. Tradeoff: Vercel previews still hit the prod Supabase project.
 
 ### Navigation: tab bar \+ modals (2026-03-31)
 
@@ -151,10 +161,13 @@ The `position: "absolute"` FAB with `left: "50%"` \+ `marginLeft` centering work
 Backlog, no active work:
 
 1. **Native build verification** — the app icons/splash (PR #7) and the `expo-file-system/legacy` native-upload fix (PR #6) are both baked at build time and unverified on device. Confirm on a native/EAS build (or `expo run:ios`/`run:android`): home-screen icon, splash, and a native image upload.  
-2. **Separate Non-Prod Supabase project** — local dev currently writes to the **prod database** (mirrors the PostHog Non-Prod split). Highest-value item — removes real risk of dev polluting prod data.  
-3. **Observability / error tracking** — no APM or error monitoring today (e.g. Sentry — first-class Expo + Vercel SDKs).  
-4. **Deferred dep majors** — ESLint 9 → 10, TypeScript 5 → 6 (revisit once `eslint-config-expo` / Metro typings support them).  
-5. Future: profile photo support (avatar circle already in place — swap initials for `<Image>`)  
-6. Future: email/password auth as second method in `components/AuthScreen.tsx`  
-7. Future: per-user score filtering via RLS on `scores` table
+2. **Vercel previews still point at the prod Supabase project** — local can't serve them, so preview testing can still write prod data. Options later: a cloud non-prod project, or Supabase Branching.  
+3. **Device testing against local Supabase** — iOS Simulator reaches `127.0.0.1`; Android emulator needs `10.0.2.2:54321`; a physical phone needs the Mac's LAN IP in `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_DOMAIN`.  
+4. **Orphaned storage objects in prod** — 33 objects in bucket `scores` vs 5 rows; discarded uploads leave images behind. Clean up, and consider fixing the discard path.  
+5. **Supabase CLI v3 upgrade** (currently 2.117.0).  
+6. **Observability / error tracking** — no APM or error monitoring today (e.g. Sentry — first-class Expo + Vercel SDKs).  
+7. **Deferred dep majors** — ESLint 9 → 10, TypeScript 5 → 6 (revisit once `eslint-config-expo` / Metro typings support them).  
+8. Future: profile photo support (avatar circle already in place — swap initials for `<Image>`)  
+9. Future: email/password auth as second method in `components/AuthScreen.tsx`  
+10. Future: per-user score filtering via RLS on `scores` table
 

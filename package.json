@@ -9,7 +9,11 @@
     "server:dev": "NODE_ENV=development tsx --env-file .env server/index.ts",
     "start": "npx expo start",
     "lint": "npx expo lint",
-    "lint:fix": "npx expo lint --fix"
+    "lint:fix": "npx expo lint --fix",
+    "db:start": "supabase start",
+    "db:stop": "supabase stop",
+    "db:reset": "supabase db reset",
+    "db:status": "supabase status"
   },
   "dependencies": {
     "@expo-google-fonts/dm-sans": "^0.4.2",

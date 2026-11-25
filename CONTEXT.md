@@ -171,11 +171,13 @@ shared/
 
 supabase/
 
-  01\_scores\_table.sql   Creates scores table \+ enables RLS
+  config.toml           Local Supabase stack config (auth, ports, redirects)
 
-  02\_storage\_policies.sql  Storage bucket RLS policies
+  migrations/           Schema source of truth — scores table, storage bucket \+ policies
 
-  README.md             Step-by-step Supabase setup instructions
+  seed.sql              Local seed — test user dev@local.test \+ 2 fake scores
+
+  README.md             Local Supabase workflow guide \+ prod project setup
 
 vercel.json             Build command, output dir, /api/\* routing
 
@@ -185,7 +187,9 @@ vercel.json             Build command, output dir, /api/\* routing
 
 ### Supabase
 
-- **Project URL:** `https://<your-project-ref>.supabase.co` (see Supabase dashboard / `.env`)  
+- **Production project URL:** `https://<your-project-ref>.supabase.co` (see Supabase dashboard / `.env.prod-reference`)  
+- **Local dev uses a local Supabase stack** (Supabase CLI 2.117.0 + Docker) at `http://127.0.0.1:54321`, not the prod project — local testing no longer writes prod data. Chosen over a cloud non-prod project because the org is on the Pro plan, where every project bills compute (~$10/mo); local is $0 and fully isolated. Mirrors the PostHog Non-Prod split in spirit.  
+- **Known risk:** Vercel preview deployments still point at the prod Supabase project (local can't serve them).  
 - **Two clients:**  
   - `lib/supabase.ts` — anon key, safe for client bundle (`EXPO_PUBLIC_SUPABASE_ANON_KEY`)  
   - `server/supabase.ts` — service role key, server only, bypasses RLS (`SUPABASE_SERVICE_ROLE_KEY`)  
@@ -271,7 +275,13 @@ Plus `analytics.identify(userId, { email, name })` on sign-in, `analytics.screen
 
 ### Local development
 
-Copy `.env.example` to `.env` (repo root) and fill it in, then start both servers with one command:
+Copy `.env.example` to `.env` (repo root) and fill it in. Docker Desktop must be running. Start the local Supabase stack first (cold start ~30s; intentionally not chained into `npm run dev`):
+
+npm run db:start   \# supabase start — also db:stop, db:status, db:reset (re-applies migrations \+ seed; wipes local data)
+
+Local endpoints: API `http://127.0.0.1:54321`, Postgres `postgresql://postgres:postgres@127.0.0.1:54322/postgres`, Studio `http://127.0.0.1:54323`, Mailpit (local inbox for magic-link emails) `http://127.0.0.1:54324`. Sign in as the seeded user `dev@local.test` via magic link, opened from Mailpit. Prod users don't exist locally; add more via Studio → Authentication → Add user (auto-confirm).
+
+Then start both servers with one command:
 
 npm run dev   \# runs server:dev + expo:dev together (concurrently)
 
@@ -295,15 +305,19 @@ Copy `.env.example` to `.env` and fill in:
 
 OPENAI\_API\_KEY=
 
-SUPABASE\_URL=                      \# https://xxxx.supabase.co
+SUPABASE\_URL=                      \# http://127.0.0.1:54321 (local stack)
 
-SUPABASE\_SERVICE\_ROLE\_KEY=
+SUPABASE\_SERVICE\_ROLE\_KEY=         \# from `supabase status -o env` (local demo key, not a secret)
 
 EXPO\_PUBLIC\_SUPABASE\_URL=          \# same as SUPABASE\_URL
 
-EXPO\_PUBLIC\_SUPABASE\_ANON\_KEY=
+EXPO\_PUBLIC\_SUPABASE\_ANON\_KEY=     \# from `supabase status -o env`
 
 EXPO\_PUBLIC\_DOMAIN=localhost:5055  \# no https://, no trailing slash
+
+Prod Supabase values are kept in `.env.prod-reference` (gitignored by `.env*`; deliberately NOT an Expo-recognised name like `.env.production.local`, which `expo export` would auto-load and bake prod into a local build). Switching to prod is a deliberate `cp .env.prod-reference .env`. `OPENAI_API_KEY` and the Non-Prod PostHog key are the same either way.
+
+Native caveat: iOS Simulator reaches `127.0.0.1`; Android emulator needs `10.0.2.2:54321`; a physical phone needs the Mac's LAN IP in `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_DOMAIN`. Device testing against local is a follow-up.
 
 ### Vercel production env vars
 
@@ -313,7 +327,7 @@ ALLOWED\_ORIGINS=https://www.slingers.app,https://slingers.app
 
 ### Database setup
 
-See `supabase/README.md`. Run SQL files in order via Supabase Dashboard → SQL Editor. Create the `scores` storage bucket manually before running `02_storage_policies.sql`.
+See `supabase/README.md`. Local: `npm run db:start` applies `supabase/migrations/` and `seed.sql` automatically; the private `scores` bucket is created in SQL (no manual dashboard step). The migrations mirror live prod exactly. (The old `01_scores_table.sql` / `02_storage_policies.sql` were removed — they had drifted from prod: a text→uuid `user_id` FK that fails, `played_date timestamptz` vs prod `text`, missing `game_name default 'Unknown'`, different storage policy names.) Prod's existing schema predates the migrations folder. Optional drift check: `supabase link --project-ref <your-project-ref> && supabase db diff --linked`.
 
 ### Linting
 
@@ -367,7 +381,7 @@ There are no automated tests.
 
 ### Schema changes
 
-No migration CLI. Make changes via Supabase dashboard → SQL Editor, then update `shared/schema.ts` and `toScore()` in `server/app.ts` to match.
+Schema lives in `supabase/migrations/`. Create a migration with `supabase migration new <name>`, test it locally with `npm run db:reset`, then apply it to prod via the dashboard SQL Editor (or Supabase MCP `apply_migration`). Update `shared/schema.ts` and `toScore()` in `server/app.ts` to match.
 
 ---
 
@@ -379,6 +393,9 @@ No migration CLI. Make changes via Supabase dashboard → SQL Editor, then updat
 - **Reference `server/supabase.ts` from client code** — it imports the service role key  
 - **Set `EXPO_PUBLIC_DOMAIN` with a `https://` prefix** — `getApiUrl()` adds the protocol; double prefix breaks all API calls  
 - **Run `npm run db:push`** — this script no longer exists; the command will fail  
+- **Point the local `.env` at prod casually** — local dev uses the local Supabase stack; switching to prod (`cp .env.prod-reference .env`) must be deliberate  
+- **Run `supabase db reset` against a linked prod project (`--linked`)** — it wipes the database; only run `npm run db:reset` against the local stack  
+- **Commit `.env.prod-reference`** — it holds prod secrets (it is gitignored via `.env*`; keep it that way)  
 - **Use `git push --force` to `main`** — production branch  
 - **Run `expo export` or build commands locally** — Vercel handles the build; local dev uses the dev server only  
 - **Add new Supabase tables or columns without updating `shared/schema.ts` and `toScore()`** — the mapper must stay in sync with the DB  
