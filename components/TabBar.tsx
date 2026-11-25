@@ -15,6 +15,7 @@ import * as Haptics from "expo-haptics";
 import { Tabs, useRouter } from "expo-router";
 import { useTheme } from "@/contexts/ThemeContext";
 import { analytics } from "@/lib/analytics";
+import { impactHaptic } from "@/lib/haptics";
 
 type BottomTabBarProps = Parameters<NonNullable<ComponentProps<typeof Tabs>["tabBar"]>>[0];
 
@@ -30,10 +31,8 @@ export default function TabBar({ state, descriptors, navigation }: BottomTabBarP
 
   const totalHeight = TAB_BAR_HEIGHT + insets.bottom;
 
-  const handleFABPress = async () => {
-    if (Platform.OS !== "web") {
-      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    }
+  const handleFABPress = () => {
+    impactHaptic(Haptics.ImpactFeedbackStyle.Medium);
     analytics.track("add_score_fab_pressed", { platform: Platform.OS });
     setShowActionSheet(true);
   };
@@ -52,9 +51,7 @@ export default function TabBar({ state, descriptors, navigation }: BottomTabBarP
     await new Promise((r) => setTimeout(r, 150));
 
     try {
-      if (Platform.OS !== "web") {
-        await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      }
+      impactHaptic(Haptics.ImpactFeedbackStyle.Light);
 
       let pickerResult;
       if (useCamera) {
