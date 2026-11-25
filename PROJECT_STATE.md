@@ -6,13 +6,40 @@ Last updated: 2026-11-25
 
 ## Current Goal
 
-Sentry Phase 2 (client SDK + PostHog error-capture split) and Phase 3 (source maps in the Vercel build) are implemented on `feat/sentry-client`; see `docs/SENTRY_PLAN.md`. Sentry Phase 1 (server) is live and verified in production. PostHog Phase 3 (`posthog-node` server-side events) and Sentry Phase 4 (optional on-error replay) follow.
+Dependency security batches (a) + (b) are done on `chore/deps-security` (not pushed; verify on the Vercel preview). Batch (c) is scheduled for on/after 2026-12-02. Sentry Phases 1–3 are merged (PR #19, PR #21). PostHog Phase 3 (`posthog-node` server-side events) and Sentry Phase 4 (optional on-error replay) follow.
 
 ---
 
 ## In Progress
 
-### Sentry Phase 2: client SDK + PostHog error-capture split (branch `feat/sentry-client`, 2026-11-25 — not pushed)
+### Dependency security batches (a) + (b) (branch `chore/deps-security`, 2026-11-25 — not pushed)
+
+Accepted risks and the supply-chain rule: **CONTEXT.md → Dependency security**.
+
+- **Batch (a), server runtime deps:** `hono` ^4.12.23 → **4.13.18** (published 2026-11-11; 4.13.16 is the minimum that fixes all 22 hono advisories, 4.13.19+ were too new); `@hono/node-server` ^2.0.4 → **2.1.8** (2026-11-12). Caret ranges kept; the lockfile pins the exact versions. Removed the unused direct deps `zod` and `ws` (grep: no imports in app/components/lib/server/api/shared/contexts/constants; both remain transitive deps of `openai`, expo, metro) and the devDependency `@expo/ngrok` (no `--tunnel` anywhere). Hono 4.13 notes: CORS default methods now include QUERY (we set `allowMethods` explicitly); RegExpRouter throws at registration on unsupported path combinations (the boot test proves ours are fine); `@hono/node-server` 2.1.6+ rejects raw `\` in paths (local dev only).
+- **Batch (b), Expo SDK 56 patch alignment:** `expo` 56.0.5 → 56.0.24, `expo-router` 56.2.7 → 56.2.22, `expo-splash-screen` → 56.0.16, `expo-constants` → 56.0.27, `expo-image` → 56.0.13, `expo-image-picker` → 56.0.25, `expo-linking` → 56.0.19, `expo-location` → 56.0.26, `expo-blur` → 56.0.4, `expo-crypto` → 56.0.5, `expo-font` → 56.0.7, `expo-symbols` → 56.0.7, `expo-web-browser` → 56.0.6, `react-native-screens` 4.25.2 → 4.26.2 (all 35+ days old). Then `npm update` of transitive deps: `@xmldom/xmldom` 0.8.15, `js-yaml` 4.3.2, `esbuild` 0.28.2, `ws` 7.5.14 / 8.23.0; `nanoid` 3.3.20 and `compression` 1.8.2 already came with the Expo alignment. `@sentry/react-native` untouched (excluded from `expo install`).
+- **Finding (supply chain):** `npx expo install --fix` re-resolves the whole transitive tree, and pulled 13 versions under 7 days old (e.g. `node-forge` 1.4.4, `source-map-js` 1.2.4, `brace-expansion` 5.1.0, `@babel/*` 7.29.15, `@expo-google-fonts/material-symbols` 0.4.55). Redone as `npm install --before=2026-11-18T00:00:00Z <expo targets>` (and the same `--before` on `npm update`), so every resolved version is ≥7 days old. Side effect: some batch (c) packages moved to cutoff-safe versions (`node-forge` 1.4.3, `postcss` 8.5.33, `source-map-js` 1.2.2, nested `brace-expansion` 5.0.13); batch (c) is still needed for their fixes.
+- **Not fixable in (b):** `shell-quote` (critical) — `concurrently` 10.0.3 pins exactly 1.8.4, and that single hoisted copy is also what `react-devtools-core` uses; `concurrently` 10.0.7 (batch c) pins 1.12.0.
+- **Verified:** tsc 0 errors, `expo lint` clean, `expo install --check` up to date. Server boots with dummy env and no DSN; `GET /api/scores` → 401 `{"error":"Unauthorized"}` with `X-Request-Id`; the CORS preflight from `http://localhost:8081` echoes the origin, sets `Access-Control-Allow-Credentials: true` and allows `authorization, x-request-id, sentry-trace, baggage`. expo-doctor: 2 failures left (`newArchEnabled` schema, Hermes V1 regression, which needs SDK 57+); the package patch-mismatch failure is resolved. `npm audit --omit=dev`: 36 (1 critical / 18 high / 16 moderate / 1 low) → 23 (1 critical / 8 high / 14 moderate / 0 low).
+- **Needs the user:** push, open the PR, check the Vercel preview build (web export not run locally per project rule).
+
+### Scheduled: dependency batch (c) on/after 2026-12-02
+
+Do it once each package's newest in-range version is ≥7 days old (`npm view <pkg> time --json`; use `--before=<date 7 days back>`):
+
+- `concurrently` → **10.0.7** (devDependency; published 2026-11-07, pins `shell-quote` 1.12.0, which clears the critical `shell-quote`).
+- `npm update node-forge postcss source-map-js browserslist baseline-browser-mapping brace-expansion` (at planning time `node-forge` 1.4.4 and `source-map-js` 1.2.4 were under 7 days old; currently locked at 1.4.3 / 1.2.2).
+- Verify as in batches (a)/(b): tsc, lint, expo-doctor, server boot + CORS curls, `npm audit --omit=dev`, then the Vercel preview.
+
+### Future project: Expo SDK 58 upgrade
+
+Separate project (not started). Clears the residual audit findings that need a major: `expo` / `@expo/cli` / `@expo/config*` / `@expo/fingerprint` / `@expo/metro-config` (via `glob`, `minimatch`, `zod@3`), `expo-router` → `query-string` → `decode-uri-component`, `expo-splash-screen`, and `image-size` (via metro). Also fixes expo-doctor's Hermes V1 regression check (needs SDK 57+).
+
+---
+
+## Recently Completed (shipped to `main`)
+
+### Sentry Phase 2: client SDK + PostHog error-capture split (PR #21, merged 2026-11-25)
 
 Details: **CONTEXT.md → Observability (Sentry)**; plan in `docs/SENTRY_PLAN.md`.
 
@@ -26,7 +53,7 @@ Details: **CONTEXT.md → Observability (Sentry)**; plan in `docs/SENTRY_PLAN.md
 - **Verified locally:** tsc 0 errors, lint clean, expo-doctor same 3 pre-existing failures, `npm audit --omit=dev` no new highs (2 new moderates: `glob` via `@sentry/bundler-plugins`). Dev-server web bundle compiles, contains one `@sentry/core` copy, no `@sentry/replay` / `@sentry-internal/feedback`, and no `expo/fetch`.
 - **Needs the user:** `EXPO_PUBLIC_SENTRY_DSN` in Vercel (Production + Preview), redeploy without build cache, verify on a preview (checklist in the PR / hand-off).
 
-### Sentry Phase 3: source maps in the Vercel build (branch `feat/sentry-client`, 2026-11-25 — not pushed)
+### Sentry Phase 3: source maps in the Vercel build (PR #21, merged 2026-11-25)
 
 - `vercel.json` `buildCommand` → `npm run build:web`: `expo export --platform web --source-maps` (env mapping kept), then `expo-upload-sourcemaps dist` if `SENTRY_AUTH_TOKEN` is set, then **always** `find dist -name '*.map' -type f -delete`. Details in `docs/SENTRY_PLAN.md` → Phase 3 and CONTEXT.md → Vercel.
 - `@sentry/expo-upload-sourcemaps` pinned devDependency (8.35.0, bundles `@sentry/cli` 3.8.2); no `npx` download at build time.
@@ -34,9 +61,9 @@ Details: **CONTEXT.md → Observability (Sentry)**; plan in `docs/SENTRY_PLAN.md
 - **Decision (trade-off):** a failed upload logs a warning and the deploy continues, so Sentry trouble never blocks a release; that deploy's client stack traces stay minified. The map deletion runs on success, failure and skip (tested with a stub uploader against a fake `dist/`).
 - **Needs the user:** Vercel env `SENTRY_AUTH_TOKEN` (Sensitive), `SENTRY_ORG=team-beam`, `SENTRY_PROJECT=score-slinger-web` (Production + Preview). Verify on the preview: no `.map` served, artifacts listed in Sentry, a test error shows source lines.
 
----
+### TabBar haptics non-blocking (PR #20, merged 2026-11-25)
 
-## Recently Completed (shipped to `main`)
+FAB press and image-picker flow no longer `await` haptics; new `lib/haptics.ts` `impactHaptic()` is fire-and-forget, skips web, swallows sync/async errors, so a haptics failure can no longer stop the action sheet or picker from opening. The swipe-delete haptic is non-fatal too. Analytics unchanged.
 
 ### Sentry Phase 1: server (PR #19, merged 2026-11-25 — live, verified in production)
 
@@ -54,8 +81,6 @@ Plan, decisions, quota math and PII rules: `docs/SENTRY_PLAN.md`. Details of the
 ### Stale-bundle reload guard (PR #18, merged 2026-11-25 — live)
 
 A Chrome tab open since before the prod publishable-key swap kept running the old bundle; its refresh hit 401 "Legacy API keys are disabled", logging the user out and failing every magic link. `lib/version-check.ts` (web prod only) re-fetches `/` on tab show and every 10 min, compares the `entry-*.js` src, and reloads when safe (not on `/upload`, no focused input; auth screen always safe). It also checks before sending a magic link, on `SIGNED_OUT`, and reloads on a legacy-key auth error (sessionStorage guard: once per 5 min). Tracks `app_reloaded_for_update`.
-
-- **TabBar haptics non-blocking** (branch `fix/tabbar-haptics`, 2026-11-25): FAB press and image-picker flow no longer `await` haptics; new `lib/haptics.ts` `impactHaptic()` is fire-and-forget, skips web, swallows sync/async errors, so a haptics failure can no longer stop the action sheet or picker from opening. Analytics unchanged.
 
 ### Upload flow bug fixes (PR #17, merged 2026-11-25 — live)
 
@@ -160,7 +185,7 @@ Expanded PostHog from a handful of events to comprehensive coverage of every use
 
 ### Dependency refresh (PR #3, merged 2026-07-20)
 
-Ten commits, one revertable unit each: Expo SDK 54 → 56 (React 19.2, RN 0.85), `@hono/node-server` 1 → 2, `zod` 3 → 4, patch/minor sweep, and react-compiler GA. All `npm audit` high-severity findings cleared (25 → 13, remaining are the upstream `xcode → uuid` dev-tooling chain — dev/build-time only). Migrated swipe-to-delete off `PanResponder` onto `react-native-gesture-handler` for React Compiler compatibility. Deleted dead files (`scripts/build.js`, `server/templates/landing-page.html`, orphaned `shared/models/chat.ts`). Added `npm run dev` (concurrently); moved local server port to **5055** (AirPlay binds 5000). Un-ignored + refreshed the project docs.
+Ten commits, one revertable unit each: Expo SDK 54 → 56 (React 19.2, RN 0.85), `@hono/node-server` 1 → 2, `zod` 3 → 4, patch/minor sweep, and react-compiler GA. All `npm audit` high-severity findings cleared at the time (25 → 13, remaining are the upstream `xcode → uuid` dev-tooling chain — dev/build-time only). New advisories have appeared since; current status in CONTEXT.md → Dependency security. Migrated swipe-to-delete off `PanResponder` onto `react-native-gesture-handler` for React Compiler compatibility. Deleted dead files (`scripts/build.js`, `server/templates/landing-page.html`, orphaned `shared/models/chat.ts`). Added `npm run dev` (concurrently); moved local server port to **5055** (AirPlay binds 5000). Un-ignored + refreshed the project docs.
 
 **Deferred (intentionally):** ESLint 9 → 10 and TypeScript 5 → 6 wait on `eslint-config-expo` / Metro typings catching up.
 
@@ -287,7 +312,8 @@ Backlog, no active work:
 3. **Device testing against local Supabase** — iOS Simulator reaches `127.0.0.1`; Android emulator needs `10.0.2.2:54321`; a physical phone needs the Mac's LAN IP in `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_DOMAIN`.  
 4. **Orphaned storage objects in prod** — 33 objects in bucket `scores` vs 5 rows; discarded uploads leave images behind. Clean up, and consider fixing the discard path.  
 5. **Supabase CLI v3 upgrade** (currently 2.117.0).  
-6. **Observability / error tracking:** Sentry Phase 1 (server) is live; Phases 2–3 (client SDK + PostHog error-capture split, source maps) are on `feat/sentry-client`; Phase 4 (optional on-error replay) needs a user decision (`docs/SENTRY_PLAN.md`).  
+6. **Observability / error tracking:** Sentry Phases 1–3 are merged (PR #19, PR #21); Phase 4 (optional on-error replay) needs a user decision (`docs/SENTRY_PLAN.md`).  
+6a. **Dependency batch (c)** on/after 2026-12-02, then the **Expo SDK 58 upgrade** as its own project (see In Progress → Scheduled / Future project).  
 7. **Deferred dep majors** — ESLint 9 → 10, TypeScript 5 → 6 (revisit once `eslint-config-expo` / Metro typings support them).  
 8. Future: profile photo support (avatar circle already in place — swap initials for `<Image>`)  
 9. Future: email/password auth as second method in `components/AuthScreen.tsx`  

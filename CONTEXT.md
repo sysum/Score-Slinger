@@ -397,6 +397,18 @@ Every event also carries `request_id`, `route`, `method`, `user_id` (after auth)
 
 ---
 
+## Dependency security
+
+- **Supply-chain rule:** only install versions published **≥7 days ago** (check with `npm view <pkg> time --json`; `npm install --before=<ISO date 7 days back>` enforces it, including for transitive deps that `npx expo install --fix` would otherwise re-resolve to brand-new releases). Never `npm audit fix --force`. Sentry packages stay pinned exact.
+- **Status (2026-11-25):** `npm audit --omit=dev` reports 23 findings (1 critical, 8 high, 14 moderate), down from 36. Dependency batch (c) is scheduled for on/after 2026-12-02 (see `PROJECT_STATE.md`); it covers the critical `shell-quote` (pinned exactly to 1.8.4 by `concurrently` 10.0.3, a dev tool, and shared with `react-devtools-core`), `brace-expansion`, `browserslist` and `baseline-browser-mapping`.
+- **Accepted risks** (until the Expo SDK 58 upgrade, which clears them):
+  - **Expo CLI / build tooling** (`expo`, `@expo/cli`, `@expo/config*`, `@expo/fingerprint`, `@expo/metro-config`, `@expo/prebuild-config`, `glob`, `minimatch`, `zod@3` under `@expo/cli`, `expo-splash-screen` via `@expo/config-plugins`, `@sentry/bundler-plugins` → `glob`). These run only at dev/build time on the developer's machine or in the Vercel build, on our own inputs (our app config, our source, our assets); none of it ships in the web bundle or runs in the API.
+  - **`expo-router` → `query-string` → `decode-uri-component`** DoS. Client-only: at worst a crafted URL stalls the tab of the person who opens it (self-DoS, no server or data impact). The fix needs expo-router 58.
+  - **`image-size`** via `metro`. Build-time only, and only parses our own image assets.
+- **Also remaining:** `zod@4.4.3`, pulled in by `openai` (and `eslint-plugin-react-hooks`), is flagged (<4.6.6, memory exhaustion validating oversized input). The server never validates untrusted input with zod; `npm update zod` (4.6.7, published 2026-10-12) would clear it.
+
+---
+
 ## How to Run / Build / Test
 
 ### Local development
