@@ -5,7 +5,7 @@
 // With no SENTRY_DSN (the local-dev default) the SDK still initialises, so the
 // Hono middleware and logger calls work, but nothing is sent anywhere.
 import * as Sentry from "@sentry/hono/node";
-import { scrubDeep } from "./scrub";
+import { scrubDeep } from "../shared/scrub";
 
 Sentry.init({
   dsn: process.env.SENTRY_DSN || undefined,

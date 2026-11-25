@@ -6,13 +6,39 @@ Last updated: 2026-11-25
 
 ## Current Goal
 
-Sentry Phase 1 (server-side errors, traces and structured logs for the API) is implemented on `feat/sentry-server`; see `docs/SENTRY_PLAN.md`. The app is healthy and in production; PostHog Phases 1–2 and the upload-flow bug fixes are merged and live. PostHog Phase 3 (`posthog-node` server-side events) and Sentry Phases 2–4 follow.
+Sentry Phase 2 (client SDK + PostHog error-capture split) and Phase 3 (source maps in the Vercel build) are implemented on `feat/sentry-client`; see `docs/SENTRY_PLAN.md`. Sentry Phase 1 (server) is live and verified in production. PostHog Phase 3 (`posthog-node` server-side events) and Sentry Phase 4 (optional on-error replay) follow.
 
 ---
 
 ## In Progress
 
-### Sentry Phase 1: server (branch `feat/sentry-server`, 2026-11-25 — not pushed)
+### Sentry Phase 2: client SDK + PostHog error-capture split (branch `feat/sentry-client`, 2026-11-25 — not pushed)
+
+Details: **CONTEXT.md → Observability (Sentry)**; plan in `docs/SENTRY_PLAN.md`.
+
+- **Package:** `@sentry/react-native` pinned to **8.35.0** (published 2026-11-12, 13 days old). `npx expo install` picked ~7.11.0 (Jan 2026): Expo's `bundledNativeModules.json` never moved past it (same in SDK 57), and 7.11.0 has neither `expoRouterIntegration` nor SDK 56 `expo/fetch` support (8.14.0+). 8.36.0 was only 8 days old. `package.json` → `expo.install.exclude` stops `expo install --check` / expo-doctor flagging the newer version.
+- **New:** `lib/monitoring.ts` (Sentry.init only when `EXPO_PUBLIC_SENTRY_DSN` is set; `captureException` / `setMonitoringUser` / `clearMonitoringUser`; exports `APP_ENVIRONMENT`, now also PostHog's `environment`), `lib/api-url.ts` (`getApiUrl()` split out so monitoring doesn't import query-client). `server/scrub.ts` moved to `shared/scrub.ts`, used by both sides.
+- **`app/_layout.tsx`:** `@/lib/monitoring` is the first import; `export default Sentry.wrap(RootLayout)`; ErrorBoundary → `captureException` with `contexts.react.componentStack`; Sentry user (id + display name, never email) set where PostHog identifies and cleared where `analytics.reset()` runs (also Profile's Sign Out).
+- **PostHog split:** exception autocapture off, `analytics.captureException` removed, every call site (query-client 5xx, ErrorBoundary, upload catch blocks, detail player names) moved to `monitoring.captureException` with the same context as tags. `isCapturedApiError` dedupe unchanged. `*_failed` events stay and gain `request_id`.
+- **Request correlation:** every API request sends `X-Request-Id` (`expo-crypto`); `ApiError.requestId` comes from the response header; `api_request_failed`, `score_parse_failed`, `player_names_update_failed`, `score_discard_failed`, `played_date_change_failed`, `score_delete_failed` carry `request_id`; 5xx Sentry events are tagged with it. `tracePropagationTargets` matches only `${getApiUrl()}/api/` (never Supabase).
+- **`expo/fetch` finding:** on web `expo/fetch` is `globalThis.fetch` captured at module load (`node_modules/expo/src/winter/fetch/fetch.web.ts:1`), while Sentry instruments by replacing `globalThis.fetch` in `Sentry.init` (`@sentry/core` `instrument/fetch.js:25`). A captured reference can predate the patch, so `query-client` now calls `globalThis.fetch` at request time (on native SDK 56 that's expo/fetch anyway).
+- **Bundle:** `metro.config.js` → `getSentryExpoConfig` (no web replay/feedback, no `annotateReactComponents` because of the React Compiler) plus a resolver that dedupes `@sentry/core` (npm nests a 10.x copy under each client `@sentry/*` package because the server's 11.x is hoisted). Dev-server minified prod bundle: 8.17 MB → 6.73 MB (gzip 1.81 → 1.46 MB).
+- **Verified locally:** tsc 0 errors, lint clean, expo-doctor same 3 pre-existing failures, `npm audit --omit=dev` no new highs (2 new moderates: `glob` via `@sentry/bundler-plugins`). Dev-server web bundle compiles, contains one `@sentry/core` copy, no `@sentry/replay` / `@sentry-internal/feedback`, and no `expo/fetch`.
+- **Needs the user:** `EXPO_PUBLIC_SENTRY_DSN` in Vercel (Production + Preview), redeploy without build cache, verify on a preview (checklist in the PR / hand-off).
+
+### Sentry Phase 3: source maps in the Vercel build (branch `feat/sentry-client`, 2026-11-25 — not pushed)
+
+- `vercel.json` `buildCommand` → `npm run build:web`: `expo export --platform web --source-maps` (env mapping kept), then `expo-upload-sourcemaps dist` if `SENTRY_AUTH_TOKEN` is set, then **always** `find dist -name '*.map' -type f -delete`. Details in `docs/SENTRY_PLAN.md` → Phase 3 and CONTEXT.md → Vercel.
+- `@sentry/expo-upload-sourcemaps` pinned devDependency (8.35.0, bundles `@sentry/cli` 3.8.2); no `npx` download at build time.
+- Pairing is by Debug ID: Expo writes `//# debugId=` into each exported `.js` and `debugId` into its `.map`; Sentry's Metro premodule registers it at runtime. Org/project from `SENTRY_ORG` / `SENTRY_PROJECT`, URL from the `app.json` plugin entry (`https://sentry.io/`).
+- **Decision (trade-off):** a failed upload logs a warning and the deploy continues, so Sentry trouble never blocks a release; that deploy's client stack traces stay minified. The map deletion runs on success, failure and skip (tested with a stub uploader against a fake `dist/`).
+- **Needs the user:** Vercel env `SENTRY_AUTH_TOKEN` (Sensitive), `SENTRY_ORG=team-beam`, `SENTRY_PROJECT=score-slinger-web` (Production + Preview). Verify on the preview: no `.map` served, artifacts listed in Sentry, a test error shows source lines.
+
+---
+
+## Recently Completed (shipped to `main`)
+
+### Sentry Phase 1: server (PR #19, merged 2026-11-25 — live, verified in production)
 
 Plan, decisions, quota math and PII rules: `docs/SENTRY_PLAN.md`. Details of the implementation: **CONTEXT.md → Observability (Sentry)**.
 
@@ -23,11 +49,11 @@ Plan, decisions, quota math and PII rules: `docs/SENTRY_PLAN.md`. Details of the
 - **Decisions (user):** two Sentry projects (`score-slinger-web` later, `score-slinger-api` now); no email in Sentry; log the raw OpenAI reply (≤2 KB) at info; PostHog `*_failed` events stay; no replay; previews report too (environment from `VERCEL_ENV`); $0 plan, and a missing `SENTRY_DSN` means a silent no-op (local default).
 - **Deviation from the plan:** the `route` tag comes from Hono's matched route list (first non-middleware match), because `c.req.routePath` inside a `*` middleware returns `*`. Also added: a fallback isolation-scope fork if the runtime ever doesn't create one per request, and a console mirror of every log line so local dev without a DSN still shows server logs.
 - **Verified locally:** tsc 0 errors, `expo lint` clean, `npm audit --omit=dev` unchanged (no new advisories). The server boots with no DSN and an unauthenticated `GET /api/scores` returns 401 with `X-Request-Id`. Against a fake ingest with a dummy DSN: requests produce `GET /api/scores` transactions and `request.completed` logs carrying `request_id` / `route` / `method`; no OPTIONS spans; no IP, headers, cookies or query strings; JWTs, `sb_*` keys, `sk-…`, `token=` / `code=` and `data:image` strings all arrive redacted.
-- **Needs the user:** create the Sentry org/projects and set `SENTRY_DSN` in Vercel (steps in `docs/SENTRY_PLAN.md` → Phase 0). After deploying a preview, check that logs, a trace and a test error arrive.
+- **Status:** merged as PR #19 and verified in production: logs, traces and errors reach `score-slinger-api` (org `team-beam`). `server/scrub.ts` has since moved to `shared/scrub.ts` (Phase 2).
 
----
+### Stale-bundle reload guard (PR #18, merged 2026-11-25 — live)
 
-## Recently Completed (shipped to `main`)
+A Chrome tab open since before the prod publishable-key swap kept running the old bundle; its refresh hit 401 "Legacy API keys are disabled", logging the user out and failing every magic link. `lib/version-check.ts` (web prod only) re-fetches `/` on tab show and every 10 min, compares the `entry-*.js` src, and reloads when safe (not on `/upload`, no focused input; auth screen always safe). It also checks before sending a magic link, on `SIGNED_OUT`, and reloads on a legacy-key auth error (sessionStorage guard: once per 5 min). Tracks `app_reloaded_for_update`.
 
 - **TabBar haptics non-blocking** (branch `fix/tabbar-haptics`, 2026-11-25): FAB press and image-picker flow no longer `await` haptics; new `lib/haptics.ts` `impactHaptic()` is fire-and-forget, skips web, swallows sync/async errors, so a haptics failure can no longer stop the action sheet or picker from opening. Analytics unchanged.
 
@@ -60,8 +86,6 @@ Client-side only, apart from one server line. Full event/property list in **CONT
 - **User decisions:** email stays a person property; no internal-user filtering; no session replay; no `posthog-node` (Phase 3).
 
 **Status:** merged as PR #16 and live. The Insights still need building in the PostHog UI.
-
-- **Stale-bundle reload guard** (branch `fix/stale-bundle-reload`, 2026-11-25): a Chrome tab open since before the prod publishable-key swap kept running the old bundle; its refresh hit 401 "Legacy API keys are disabled", logging the user out and failing every magic link. `lib/version-check.ts` (web prod only) re-fetches `/` on tab show and every 10 min, compares the `entry-*.js` src, and reloads when safe (not on `/upload`, no focused input; auth screen always safe). It also checks before sending a magic link, on `SIGNED_OUT`, and reloads on a legacy-key auth error (sessionStorage guard: once per 5 min). Tracks `app_reloaded_for_update`.
 
 ### PostHog Phase 1: foundation (PR #15, merged 2026-11-24)
 
@@ -263,7 +287,7 @@ Backlog, no active work:
 3. **Device testing against local Supabase** — iOS Simulator reaches `127.0.0.1`; Android emulator needs `10.0.2.2:54321`; a physical phone needs the Mac's LAN IP in `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_DOMAIN`.  
 4. **Orphaned storage objects in prod** — 33 objects in bucket `scores` vs 5 rows; discarded uploads leave images behind. Clean up, and consider fixing the discard path.  
 5. **Supabase CLI v3 upgrade** (currently 2.117.0).  
-6. **Observability / error tracking:** Sentry Phase 1 (server) is in progress; Phases 2–4 (client SDK + PostHog error-capture split, source maps, optional on-error replay) are planned in `docs/SENTRY_PLAN.md`.  
+6. **Observability / error tracking:** Sentry Phase 1 (server) is live; Phases 2–3 (client SDK + PostHog error-capture split, source maps) are on `feat/sentry-client`; Phase 4 (optional on-error replay) needs a user decision (`docs/SENTRY_PLAN.md`).  
 7. **Deferred dep majors** — ESLint 9 → 10, TypeScript 5 → 6 (revisit once `eslint-config-expo` / Metro typings support them).  
 8. Future: profile photo support (avatar circle already in place — swap initials for `<Image>`)  
 9. Future: email/password auth as second method in `components/AuthScreen.tsx`  

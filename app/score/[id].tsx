@@ -28,8 +28,9 @@ import Animated, {
 } from "react-native-reanimated";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useToast } from "@/contexts/ToastContext";
-import { apiRequest, ApiError } from "@/lib/query-client";
+import { apiRequest, ApiError, requestIdOf } from "@/lib/query-client";
 import { analytics } from "@/lib/analytics";
+import { captureException } from "@/lib/monitoring";
 import { useDeleteScore } from "@/lib/use-delete-score";
 import { type ThemeColors } from "@/constants/colors";
 
@@ -206,11 +207,16 @@ export default function ScoreDetailScreen() {
       });
       showToast(NAME_SAVE_ERROR_MESSAGE, { type: "error" });
       const status = err instanceof ApiError ? err.status : null;
-      analytics.track("player_names_update_failed", { location: "detail", score_id: id, status });
+      analytics.track("player_names_update_failed", {
+        location: "detail",
+        score_id: id,
+        status,
+        request_id: requestIdOf(err),
+      });
       // HTTP errors are covered by api_request_failed; send the stack trace
       // only for non-HTTP ones (network or unexpected).
       if (status === null) {
-        analytics.captureException(err, { context: "player_names_update", location: "detail", score_id: id });
+        captureException(err, { tags: { context: "player_names_update", location: "detail", score_id: id } });
       }
     }
   };

@@ -14,6 +14,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useTheme, AppearanceMode } from "@/contexts/ThemeContext";
 import { supabase } from "@/lib/supabase";
 import { analytics } from "@/lib/analytics";
+import { clearMonitoringUser } from "@/lib/monitoring";
 import Constants from "expo-constants";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -133,6 +134,7 @@ export default function ProfileScreen() {
   const handleSignOut = () => {
     analytics.track("signed_out");
     analytics.reset();
+    clearMonitoringUser();
     supabase.auth.signOut();
   };
 

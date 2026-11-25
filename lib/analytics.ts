@@ -1,6 +1,7 @@
 import Constants from "expo-constants";
 import { Platform } from "react-native";
 import PostHog from "posthog-react-native";
+import { APP_ENVIRONMENT } from "./monitoring";
 
 const key = process.env.EXPO_PUBLIC_POSTHOG_KEY ?? "";
 const host =
@@ -17,11 +18,12 @@ export const posthog = key
       preloadFeatureFlags: false,
       disableSurveys: true,
       captureAppLifecycleEvents: true,
+      // Errors go to Sentry (lib/monitoring.ts); PostHog keeps the *_failed
+      // product events only. All autocapture off so nothing reaches both.
       errorTracking: {
         autocapture: {
-          uncaughtExceptions: true, // RN ErrorUtils — native only (absent on web)
-          unhandledRejections: true,
-          // Off: explicit *_failed events already cover the errors we care about.
+          uncaughtExceptions: false,
+          unhandledRejections: false,
           console: false,
         },
       },
@@ -39,9 +41,7 @@ type EventProps = Parameters<NonNullable<typeof posthog>["capture"]>[1];
 const commitSha = process.env.EXPO_PUBLIC_COMMIT_SHA;
 const superProps: Record<string, string> = {
   platform: Platform.OS,
-  environment:
-    process.env.EXPO_PUBLIC_VERCEL_ENV ||
-    (__DEV__ ? "development" : "production"),
+  environment: APP_ENVIRONMENT, // same value as Sentry's environment
   ...(Constants.expoConfig?.version
     ? { app_version: Constants.expoConfig.version }
     : {}),
@@ -92,9 +92,6 @@ export const analytics = {
   },
   screen(name: string, props?: Record<string, unknown>) {
     posthog?.screen(name, props as EventProps);
-  },
-  captureException(error: unknown, props?: Record<string, unknown>) {
-    posthog?.captureException(error, props as EventProps);
   },
   reset() {
     posthog?.reset();

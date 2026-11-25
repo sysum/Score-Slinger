@@ -13,7 +13,7 @@
 // NEVER pass image bytes, base64, data URLs, tokens or keys as attributes.
 // scrub.ts is a safety net, not a licence.
 import * as Sentry from "@sentry/hono/node";
-import { scrubDeep, scrubString } from "./scrub";
+import { scrubDeep, scrubString } from "../shared/scrub";
 
 export type LogAttributes = Record<string, string | number | boolean | null | undefined>;
 type Level = "debug" | "info" | "warn" | "error";

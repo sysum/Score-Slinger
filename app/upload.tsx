@@ -31,9 +31,10 @@ import Animated, {
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useToast } from "@/contexts/ToastContext";
-import { apiRequest, ApiError, isCapturedApiError } from "@/lib/query-client";
+import { apiRequest, ApiError, isCapturedApiError, requestIdOf } from "@/lib/query-client";
 import { supabase } from "@/lib/supabase";
 import { analytics } from "@/lib/analytics";
+import { captureException } from "@/lib/monitoring";
 import { type ThemeColors } from "@/constants/colors";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -426,7 +427,7 @@ export default function UploadScreen() {
           const newScore = await saveRes.json();
           if (typeof newScore?.id === "string") newScoreId = newScore.id;
         } catch (err) {
-          analytics.captureException(err, { context: "post_save", step: "read_response" });
+          captureException(err, { tags: { context: "post_save", step: "read_response" } });
         }
         if (!newScoreId) {
           // Unreadable save response: recover the id from a fresh history fetch
@@ -436,7 +437,7 @@ export default function UploadScreen() {
             newScoreId =
               queryClient.getQueryData<Score[]>(["/api/scores"])?.find((s) => s.imagePath === storagePath)?.id ?? null;
           } catch (err) {
-            analytics.captureException(err, { context: "post_save", step: "recover_id" });
+            captureException(err, { tags: { context: "post_save", step: "recover_id" } });
           }
         }
 
@@ -448,7 +449,7 @@ export default function UploadScreen() {
               await apiRequest("DELETE", `/api/scores/${newScoreId}`);
             } catch (err) {
               if (!(err instanceof ApiError && err.status === 404) && !isCapturedApiError(err)) {
-                analytics.captureException(err, { context: "upload_cancel_cleanup", score_id: newScoreId });
+                captureException(err, { tags: { context: "upload_cancel_cleanup", score_id: newScoreId } });
               }
             }
           }
@@ -471,7 +472,7 @@ export default function UploadScreen() {
             ...gameplayProps(data),
           });
         } catch (err) {
-          analytics.captureException(err, { context: "post_save" });
+          captureException(err, { tags: { context: "post_save" } });
         }
         setResult(data);
       }
@@ -484,7 +485,7 @@ export default function UploadScreen() {
       if (savedResult) {
         // Backstop: post-save work is wrapped above, but a score that exists
         // must never be reported as "Failed to analyze image".
-        analytics.captureException(err, { context: "post_save" });
+        captureException(err, { tags: { context: "post_save" } });
         setResult(savedResult);
         return;
       }
@@ -496,11 +497,12 @@ export default function UploadScreen() {
           stage: networkFailed ? "network" : stage,
           status,
           error: String(err),
+          request_id: requestIdOf(err),
         });
         // Neither an HTTP nor a network failure (e.g. a bad JSON body or a
         // bug): also send the stack trace. 5xx are captured in apiRequest.
         if (status === null && !networkFailed) {
-          analytics.captureException(err, { context: "analyze_image", stage });
+          captureException(err, { tags: { context: "analyze_image", stage } });
         }
       }
       setResult({ teamScore: 0, gameName: "Unknown", players: [], error: "Failed to analyze image. Please try again." });
@@ -533,11 +535,16 @@ export default function UploadScreen() {
         });
         showToast(NAME_SAVE_ERROR_MESSAGE, { type: "error" });
         const status = err instanceof ApiError ? err.status : null;
-        analytics.track("player_names_update_failed", { location: "upload", score_id: savedId, status });
+        analytics.track("player_names_update_failed", {
+          location: "upload",
+          score_id: savedId,
+          status,
+          request_id: requestIdOf(err),
+        });
         // HTTP errors are covered by api_request_failed; send the stack trace
         // only for non-HTTP ones (network or unexpected).
         if (status === null) {
-          analytics.captureException(err, { context: "player_names_update", location: "upload", score_id: savedId });
+          captureException(err, { tags: { context: "player_names_update", location: "upload", score_id: savedId } });
         }
       }
     }
@@ -574,6 +581,7 @@ export default function UploadScreen() {
             score_id: savedId,
             status: err instanceof ApiError ? err.status : null,
             error: err instanceof Error ? err.message : String(err),
+            request_id: requestIdOf(err),
           });
           setDiscardError(DISCARD_ERROR_MESSAGE);
           setDiscarding(false);
@@ -652,6 +660,7 @@ export default function UploadScreen() {
           location: "upload",
           score_id: savedId,
           error: err instanceof Error ? err.message : String(err),
+          request_id: requestIdOf(err),
         });
         setDateError(DATE_SAVE_ERROR_MESSAGE);
         return;
