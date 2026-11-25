@@ -6,15 +6,30 @@ Last updated: 2026-11-25
 
 ## Current Goal
 
-PostHog user-behavior plan, Phase 2 (event taxonomy + richer props) is in review. The app is healthy and in production; the dependency refresh, analytics build-out, tsc/lint cleanup, new app logo, local Supabase dev stack and PostHog Phase 1 have all shipped to `main`. Phase 3 (`posthog-node` server-side events) follows.
+Sentry Phase 1 (server-side errors, traces and structured logs for the API) is implemented on `feat/sentry-server`; see `docs/SENTRY_PLAN.md`. The app is healthy and in production; PostHog Phases 1–2 and the upload-flow bug fixes are merged and live. PostHog Phase 3 (`posthog-node` server-side events) and Sentry Phases 2–4 follow.
 
 ---
 
 ## In Progress
 
-### Upload flow bug fixes (branch `fix/upload-flow-bugs`, stacked on #16, 2026-11-25 — not pushed)
+### Sentry Phase 1: server (branch `feat/sentry-server`, 2026-11-25 — not pushed)
 
-Branched from `feat/posthog-phase2` (PR #16) because both rewrite `app/upload.tsx`; rebase onto `main` once #16 merges.
+Plan, decisions, quota math and PII rules: `docs/SENTRY_PLAN.md`. Details of the implementation: **CONTEXT.md → Observability (Sentry)**.
+
+- **Why:** Vercel Hobby keeps runtime logs for 1 hour; the 2026-11-25 upload incident had to be pieced together from Supabase logs. Sentry (free plan, project `score-slinger-api`) keeps errors, traces and logs.
+- **Packages:** `@sentry/hono` + `@sentry/node`, both pinned to exactly `11.12.0` (the newest release ≥2 weeks old at install time; avoid pinning brand-new releases). (`@hono/sentry` and the `honoIntegration` approach are deprecated.) Needs Node ≥20.19 / ≥22.12. No `engines` in `package.json`; the Vercel project's Node version must be 22.x or 24.x.
+- **New files:** `server/instrument.ts` (`Sentry.init` from `@sentry/hono/node`, first import of `api/index.ts` + `server/index.ts`), `server/log.ts` (structured logger over `Sentry.logger`, scrubbed `console.log` mirror), `server/scrub.ts` (redaction).
+- **`server/app.ts`:** `sentry(app)` first, then a request-id middleware (`X-Request-Id` in/out, tags + attributes `request_id` / `route` / `method`, one `request.completed` access log per request), CORS allows `sentry-trace` / `baggage` / `X-Request-Id` and exposes `X-Request-Id`, `requireAuth` sets the Sentry user (id + display name, no email). All 14 `console.*` calls are now structured log events. Catch-alls go through `fail()`, which reports to Sentry and adds `requestId` to the 500 body. **Status codes and `error` strings are unchanged.**
+- **Decisions (user):** two Sentry projects (`score-slinger-web` later, `score-slinger-api` now); no email in Sentry; log the raw OpenAI reply (≤2 KB) at info; PostHog `*_failed` events stay; no replay; previews report too (environment from `VERCEL_ENV`); $0 plan, and a missing `SENTRY_DSN` means a silent no-op (local default).
+- **Deviation from the plan:** the `route` tag comes from Hono's matched route list (first non-middleware match), because `c.req.routePath` inside a `*` middleware returns `*`. Also added: a fallback isolation-scope fork if the runtime ever doesn't create one per request, and a console mirror of every log line so local dev without a DSN still shows server logs.
+- **Verified locally:** tsc 0 errors, `expo lint` clean, `npm audit --omit=dev` unchanged (no new advisories). The server boots with no DSN and an unauthenticated `GET /api/scores` returns 401 with `X-Request-Id`. Against a fake ingest with a dummy DSN: requests produce `GET /api/scores` transactions and `request.completed` logs carrying `request_id` / `route` / `method`; no OPTIONS spans; no IP, headers, cookies or query strings; JWTs, `sb_*` keys, `sk-…`, `token=` / `code=` and `data:image` strings all arrive redacted.
+- **Needs the user:** create the Sentry org/projects and set `SENTRY_DSN` in Vercel (steps in `docs/SENTRY_PLAN.md` → Phase 0). After deploying a preview, check that logs, a trace and a test error arrive.
+
+---
+
+## Recently Completed (shipped to `main`)
+
+### Upload flow bug fixes (PR #17, merged 2026-11-25 — live)
 
 - **X mid-analysis cancels** (`app/upload.tsx`): `analyzeImage` registers a cancel callback (`cancelAnalysisRef`), also fired on unmount (iOS swipe-down / Android back). After every await it stops if canceled: no further requests, no flow events, no setState. Canceled before the save → save skipped; save already in flight → the new record is deleted (best-effort; server then removes its image). Fires `upload_canceled { stage }`. **Known gap:** an image uploaded before a pre-save cancel stays orphaned — the bucket has no client delete policy (`supabase/migrations/…storage…`), and only the server DELETE cleans images. Fixing it needs a storage delete policy or a server endpoint (schema/API change, not done).
 - **Failed discard is no longer silent:** the screen stays open with a spinner ("Discarding…"; X/Done disabled, ref guard against double-taps), and on failure shows an inline error by the Discard button (scrolls to it) so the user can retry or keep with Done. A 404 counts as success. Mirrors `lib/use-delete-score.ts` rather than reusing it — the hook fires `score_deleted` + a "Score deleted" toast, while discard must fire `score_discarded`. New `score_discard_failed`; the old `$exception` (`context: "score_discard"`) is gone.
@@ -23,9 +38,9 @@ Branched from `feat/posthog-phase2` (PR #16) because both rewrite `app/upload.ts
 - **Web file extension fixed:** web URIs are `blob:https://…/<uuid>`, so `split(".")` gave `"app/<uuid>"` — prod paths look like `scores/…-xyz.app/<uuid>`, the web HEIC check never fired and `ext` analytics were garbage. Web now reads the blob first and derives `ext` from its MIME type (→ `fileName` param → `jpg`); HEIC is rejected before upload. Native unchanged. Existing prod paths not migrated (`image_path` is stored verbatim, so old rows still work). Side effect: on web, `image_upload_started` now fires after the image is read.
 - **Orphaned images** (`server/app.ts`): `DELETE /api/scores/:id` fetches `image_path` in the ownership check and, after the row is deleted, removes the object from `scores` (logged, never fails the request). Existing prod orphans untouched — cleanup needs separate user approval.
 
-**Status:** tsc 0 errors, `expo lint` clean. Needs a click-through: happy path (upload → parse → save → Done), X during analysis at each stage, discard with the network off, name edit with the network off (upload + detail), web PNG/JPEG/HEIC, and confirm the storage object goes on delete.
+**Status:** merged as PR #17 and live. Originally stacked on #16 because both rewrite `app/upload.tsx`.
 
-### PostHog Phase 2: taxonomy + richer props (branch `feat/posthog-phase2`, 2026-11-25 — in review)
+### PostHog Phase 2: taxonomy + richer props (PR #16, merged 2026-11-25 — live)
 
 Client-side only, apart from one server line. Full event/property list in **CONTEXT.md → PostHog → Event catalog**, plus an "Insights to build" list (upload + sign-in funnels, parse quality, retention, errors, gameplay stats).
 
@@ -42,11 +57,7 @@ Client-side only, apart from one server line. Full event/property list in **CONT
 - **Swallowed catches** (player-name PATCH on upload/detail, discard DELETE, unexpected non-HTTP errors in the upload flow) now `captureException(err, { context })`, skipping 5xx already captured upstream (`isCapturedApiError`).
 - **User decisions:** email stays a person property; no internal-user filtering; no session replay; no `posthog-node` (Phase 3).
 
-**Status:** tsc 0 errors, `expo lint` clean. Needs a click-through against PostHog Non-Prod (upload happy path, parse error, discard, name/date edits, History/Detail, Profile prefs) and then the Insights built in the PostHog UI.
-
----
-
-## Recently Completed (shipped to `main`)
+**Status:** merged as PR #16 and live. The Insights still need building in the PostHog UI.
 
 - **Stale-bundle reload guard** (branch `fix/stale-bundle-reload`, 2026-11-25): a Chrome tab open since before the prod publishable-key swap kept running the old bundle; its refresh hit 401 "Legacy API keys are disabled", logging the user out and failing every magic link. `lib/version-check.ts` (web prod only) re-fetches `/` on tab show and every 10 min, compares the `entry-*.js` src, and reloads when safe (not on `/upload`, no focused input; auth screen always safe). It also checks before sending a magic link, on `SIGNED_OUT`, and reloads on a legacy-key auth error (sessionStorage guard: once per 5 min). Tracks `app_reloaded_for_update`.
 
@@ -250,7 +261,7 @@ Backlog, no active work:
 3. **Device testing against local Supabase** — iOS Simulator reaches `127.0.0.1`; Android emulator needs `10.0.2.2:54321`; a physical phone needs the Mac's LAN IP in `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_DOMAIN`.  
 4. **Orphaned storage objects in prod** — 33 objects in bucket `scores` vs 5 rows; discarded uploads leave images behind. Clean up, and consider fixing the discard path.  
 5. **Supabase CLI v3 upgrade** (currently 2.117.0).  
-6. **Observability / error tracking** — no APM or error monitoring today (e.g. Sentry — first-class Expo + Vercel SDKs).  
+6. **Observability / error tracking:** Sentry Phase 1 (server) is in progress; Phases 2–4 (client SDK + PostHog error-capture split, source maps, optional on-error replay) are planned in `docs/SENTRY_PLAN.md`.  
 7. **Deferred dep majors** — ESLint 9 → 10, TypeScript 5 → 6 (revisit once `eslint-config-expo` / Metro typings support them).  
 8. Future: profile photo support (avatar circle already in place — swap initials for `<Image>`)  
 9. Future: email/password auth as second method in `components/AuthScreen.tsx`  

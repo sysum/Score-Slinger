@@ -1,3 +1,5 @@
+// Must stay the first import: initialises Sentry before anything else loads.
+import "./instrument";
 import { serve } from "@hono/node-server";
 import app from "./app";
 

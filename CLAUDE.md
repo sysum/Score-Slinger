@@ -21,6 +21,7 @@ Score Slinger is a mobile \+ web app for logging scores from theme park ride gam
 | AI parsing | OpenAI `gpt-4.1-mini` vision |
 | Auth | Supabase Auth — magic link, PKCE flow, invite-only |
 | Analytics | PostHog (`posthog-react-native`) — event tracking, web \+ native |
+| Observability | Sentry (`@sentry/hono` \+ `@sentry/node`, pinned 11.12.0) — API errors, traces, structured logs (project `score-slinger-api`); no-op without `SENTRY_DSN`. Client is Phase 2 — see `docs/SENTRY_PLAN.md` |
 
 ---
 
@@ -90,9 +91,15 @@ Score Slinger is a mobile \+ web app for logging scores from theme park ride gam
 
 ├── server/
 
-│   ├── app.ts            \# Hono app — all 7 API routes \+ CORS \+ requireAuth middleware
+│   ├── app.ts            \# Hono app — all 7 API routes \+ Sentry \+ request-id \+ CORS \+ requireAuth middleware
 
 │   ├── index.ts          \# Local dev entry point (@hono/node-server, port 5055\)
+
+│   ├── instrument.ts     \# Sentry.init — MUST stay the first import of api/index.ts and server/index.ts
+
+│   ├── log.ts            \# Structured logger (`log.info("event", attrs)`) — use instead of console.\* in server code
+
+│   ├── scrub.ts          \# Redacts JWTs/keys/tokens/data:image from everything sent to Sentry
 
 │   └── supabase.ts       \# Server-side Supabase admin client (secret key in prod / service-role demo key locally — never expose)
 
@@ -229,6 +236,10 @@ EXPO\_PUBLIC\_POSTHOG\_KEY=   \# PostHog project API key — analytics disabled 
 
 EXPO\_PUBLIC\_POSTHOG\_HOST=  \# PostHog ingest host (default: https://us.i.posthog.com)
 
+SENTRY\_DSN=                \# score-slinger-api DSN — server-only here; set in Vercel (Production \+ Preview), unset locally = Sentry no-op
+
+                           \# Coming in Sentry Phases 2–3: EXPO\_PUBLIC\_SENTRY\_DSN, SENTRY\_AUTH\_TOKEN, SENTRY\_ORG, SENTRY\_PROJECT
+
 EXPO\_PUBLIC\_POSTHOG\_DEBUG= \# "true" enables PostHog SDK debug logging
 
 \# Set by vercel.json's buildCommand from Vercel system vars (not in .env):
@@ -317,6 +328,7 @@ Local auth is configured in `supabase/config.toml` instead: invite-only (`enable
 - [ ] Follow-up: test native devices (simulator/emulator/phone) against the local Supabase stack  
 - [ ] Follow-up: clean up orphaned images in prod storage (33 objects in `scores` vs 5 rows, from discarded uploads). New deletes/discards now remove their image (`fix/upload-flow-bugs`); a cancel before the auto-save still orphans its upload (no client Storage delete policy)  
 - [ ] Follow-up: upgrade Supabase CLI to v3 (currently 2.117.0)
+- [ ] In progress: Sentry Phase 1 (server) on `feat/sentry-server`; Phases 2–4 (client SDK, source maps, optional replay) in `docs/SENTRY_PLAN.md`
 
 Recently done: local Supabase dev workflow (CLI \+ Docker, `npm run db:*`, schema in `supabase/migrations/` mirroring prod, seed user `dev@local.test`, prod env kept in `.env.prod-reference`) — local dev no longer writes to prod. Earlier: dependency refresh to Expo SDK 56 (from 54), all `npm audit` highs cleared; removed legacy `scripts/build.js`, `server/templates/landing-page.html`, and orphaned `shared/models/chat.ts`; added `npm run dev`; moved local server port to 5055.
 
