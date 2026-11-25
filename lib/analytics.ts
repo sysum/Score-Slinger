@@ -100,4 +100,12 @@ export const analytics = {
     posthog?.reset();
     registerSuperProps();
   },
+  /** Send queued events now (e.g. before a page reload), waiting at most `timeoutMs`. */
+  async flush(timeoutMs = 500) {
+    if (!posthog) return;
+    await Promise.race([
+      posthog.flush().catch(() => {}),
+      new Promise((resolve) => setTimeout(resolve, timeoutMs)),
+    ]);
+  },
 };

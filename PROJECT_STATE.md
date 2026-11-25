@@ -48,6 +48,8 @@ Client-side only, apart from one server line. Full event/property list in **CONT
 
 ## Recently Completed (shipped to `main`)
 
+- **Stale-bundle reload guard** (branch `fix/stale-bundle-reload`, 2026-11-25): a Chrome tab open since before the prod publishable-key swap kept running the old bundle; its refresh hit 401 "Legacy API keys are disabled", logging the user out and failing every magic link. `lib/version-check.ts` (web prod only) re-fetches `/` on tab show and every 10 min, compares the `entry-*.js` src, and reloads when safe (not on `/upload`, no focused input; auth screen always safe). It also checks before sending a magic link, on `SIGNED_OUT`, and reloads on a legacy-key auth error (sessionStorage guard: once per 5 min). Tracks `app_reloaded_for_update`.
+
 ### PostHog Phase 1: foundation (PR #15, merged 2026-11-24)
 
 First phase of the PostHog user-behavior plan (Phase 2 — taxonomy, `score_id` rename, team scores/colors, dashboards — follows).
