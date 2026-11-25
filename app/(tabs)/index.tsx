@@ -26,6 +26,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useTheme } from "@/contexts/ThemeContext";
 import { analytics } from "@/lib/analytics";
+import { impactHaptic } from "@/lib/haptics";
 import { useDeleteScore } from "@/lib/use-delete-score";
 import { type ThemeColors } from "@/constants/colors";
 
@@ -208,7 +209,7 @@ function HistoryCard({
         <Animated.View style={[styles.deleteArea, { backgroundColor: colors.danger }, deleteStyle]}>
           <Pressable
             onPress={() => {
-              if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              impactHaptic(Haptics.ImpactFeedbackStyle.Medium);
               analytics.track("score_delete_requested", { via: "swipe", score_id: item.id });
               onDelete();
             }}

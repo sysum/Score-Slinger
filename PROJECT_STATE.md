@@ -29,6 +29,8 @@ Plan, decisions, quota math and PII rules: `docs/SENTRY_PLAN.md`. Details of the
 
 ## Recently Completed (shipped to `main`)
 
+- **TabBar haptics non-blocking** (branch `fix/tabbar-haptics`, 2026-11-25): FAB press and image-picker flow no longer `await` haptics; new `lib/haptics.ts` `impactHaptic()` is fire-and-forget, skips web, swallows sync/async errors, so a haptics failure can no longer stop the action sheet or picker from opening. Analytics unchanged.
+
 ### Upload flow bug fixes (PR #17, merged 2026-11-25 — live)
 
 - **X mid-analysis cancels** (`app/upload.tsx`): `analyzeImage` registers a cancel callback (`cancelAnalysisRef`), also fired on unmount (iOS swipe-down / Android back). After every await it stops if canceled: no further requests, no flow events, no setState. Canceled before the save → save skipped; save already in flight → the new record is deleted (best-effort; server then removes its image). Fires `upload_canceled { stage }`. **Known gap:** an image uploaded before a pre-save cancel stays orphaned — the bucket has no client delete policy (`supabase/migrations/…storage…`), and only the server DELETE cleans images. Fixing it needs a storage delete policy or a server endpoint (schema/API change, not done).
