@@ -34,7 +34,14 @@
       "@react-native-community/datetimepicker",
       "expo-image",
       "expo-splash-screen",
-      "expo-status-bar"
+      "expo-status-bar",
+      [
+        "@sentry/react-native/expo",
+        {
+          "organization": "team-beam",
+          "project": "score-slinger-web"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

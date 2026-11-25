@@ -21,7 +21,7 @@ Score Slinger is a mobile \+ web app for logging scores from theme park ride gam
 | AI parsing | OpenAI `gpt-4.1-mini` vision |
 | Auth | Supabase Auth — magic link, PKCE flow, invite-only |
 | Analytics | PostHog (`posthog-react-native`) — event tracking, web \+ native |
-| Observability | Sentry (`@sentry/hono` \+ `@sentry/node`, pinned 11.12.0) — API errors, traces, structured logs (project `score-slinger-api`); no-op without `SENTRY_DSN`. Client is Phase 2 — see `docs/SENTRY_PLAN.md` |
+| Observability | Sentry — server `@sentry/hono` \+ `@sentry/node` (pinned 11.12.0, project `score-slinger-api`, no-op without `SENTRY_DSN`); client `@sentry/react-native` (pinned 8.35.0, project `score-slinger-web`, no-op without `EXPO_PUBLIC_SENTRY_DSN`). Errors, traces, structured logs; all exceptions go to Sentry, PostHog keeps product events. See `docs/SENTRY_PLAN.md` |
 
 ---
 
@@ -81,9 +81,13 @@ Score Slinger is a mobile \+ web app for logging scores from theme park ride gam
 
 ├── lib/
 
-│   ├── analytics.ts      \# PostHog wrapper — client options, super props, identifyUser/track/screen/captureException/setPersonProperties/reset; null-safe (no-op if EXPO\_PUBLIC\_POSTHOG\_KEY not set). Full event catalog in CONTEXT.md → External Integrations → PostHog.
+│   ├── analytics.ts      \# PostHog wrapper — client options, super props, identifyUser/track/screen/setPersonProperties/reset (no error capture: that's Sentry); null-safe (no-op if EXPO\_PUBLIC\_POSTHOG\_KEY not set). Full event catalog in CONTEXT.md → External Integrations → PostHog.
 
-│   ├── query-client.ts   \# TanStack Query setup \+ apiRequest helper (throws ApiError with .status) \+ getApiUrl()
+│   ├── api-url.ts        \# getApiUrl() — dependency-free (re-exported by query-client)
+
+│   ├── monitoring.ts     \# Sentry client wrapper — init (only with EXPO\_PUBLIC\_SENTRY\_DSN), captureException, set/clearMonitoringUser. MUST stay the first import of app/\_layout.tsx
+
+│   ├── query-client.ts   \# TanStack Query setup \+ apiRequest helper (sends X-Request-Id; throws ApiError with .status / .requestId) \+ getApiUrl()
 
 │   ├── use-delete-score.ts \# Shared delete flow for History + Score Detail modals (guard, optimistic cache, 404-as-success, toast)
 
@@ -99,13 +103,13 @@ Score Slinger is a mobile \+ web app for logging scores from theme park ride gam
 
 │   ├── log.ts            \# Structured logger (`log.info("event", attrs)`) — use instead of console.\* in server code
 
-│   ├── scrub.ts          \# Redacts JWTs/keys/tokens/data:image from everything sent to Sentry
-
 │   └── supabase.ts       \# Server-side Supabase admin client (secret key in prod / service-role demo key locally — never expose)
 
 ├── shared/
 
-│   └── schema.ts         \# TypeScript types only — Score type shared between client and server
+│   ├── schema.ts         \# TypeScript types only — Score type shared between client and server
+
+│   └── scrub.ts          \# Redacts JWTs/keys/tokens/codes/data:image from everything sent to Sentry (server \+ client)
 
 ├── supabase/
 
@@ -238,7 +242,9 @@ EXPO\_PUBLIC\_POSTHOG\_HOST=  \# PostHog ingest host (default: https://us.i.post
 
 SENTRY\_DSN=                \# score-slinger-api DSN — server-only here; set in Vercel (Production \+ Preview), unset locally = Sentry no-op
 
-                           \# Coming in Sentry Phases 2–3: EXPO\_PUBLIC\_SENTRY\_DSN, SENTRY\_AUTH\_TOKEN, SENTRY\_ORG, SENTRY\_PROJECT
+EXPO\_PUBLIC\_SENTRY\_DSN=    \# score-slinger-web DSN — client-safe, baked into the bundle; set in Vercel (Production \+ Preview), unset locally = Sentry.init never runs
+
+                           \# Coming in Sentry Phase 3: SENTRY\_AUTH\_TOKEN, SENTRY\_ORG, SENTRY\_PROJECT
 
 EXPO\_PUBLIC\_POSTHOG\_DEBUG= \# "true" enables PostHog SDK debug logging
 
@@ -328,9 +334,9 @@ Local auth is configured in `supabase/config.toml` instead: invite-only (`enable
 - [ ] Follow-up: test native devices (simulator/emulator/phone) against the local Supabase stack  
 - [ ] Follow-up: clean up orphaned images in prod storage (33 objects in `scores` vs 5 rows, from discarded uploads). New deletes/discards now remove their image (`fix/upload-flow-bugs`); a cancel before the auto-save still orphans its upload (no client Storage delete policy)  
 - [ ] Follow-up: upgrade Supabase CLI to v3 (currently 2.117.0)
-- [ ] In progress: Sentry Phase 1 (server) on `feat/sentry-server`; Phases 2–4 (client SDK, source maps, optional replay) in `docs/SENTRY_PLAN.md`
+- [ ] In progress: Sentry Phase 2 (client SDK + PostHog error-capture split) and Phase 3 (source maps) on `feat/sentry-client`; Phase 4 (optional replay) in `docs/SENTRY_PLAN.md`
 
-Recently done: local Supabase dev workflow (CLI \+ Docker, `npm run db:*`, schema in `supabase/migrations/` mirroring prod, seed user `dev@local.test`, prod env kept in `.env.prod-reference`) — local dev no longer writes to prod. Earlier: dependency refresh to Expo SDK 56 (from 54), all `npm audit` highs cleared; removed legacy `scripts/build.js`, `server/templates/landing-page.html`, and orphaned `shared/models/chat.ts`; added `npm run dev`; moved local server port to 5055.
+Recently done: Sentry Phase 1 (server errors, traces, logs; PR #19, verified in prod) and the stale-bundle reload guard (`lib/version-check.ts`, PR #18). Earlier: local Supabase dev workflow (CLI \+ Docker, `npm run db:*`, schema in `supabase/migrations/` mirroring prod, seed user `dev@local.test`, prod env kept in `.env.prod-reference`) — local dev no longer writes to prod. Earlier: dependency refresh to Expo SDK 56 (from 54), all `npm audit` highs cleared; removed legacy `scripts/build.js`, `server/templates/landing-page.html`, and orphaned `shared/models/chat.ts`; added `npm run dev`; moved local server port to 5055.
 
 ---
 

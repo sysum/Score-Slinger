@@ -24,7 +24,7 @@ This is a small, invite-only app for a group of friends/family. There is no publ
 | AI | OpenAI `gpt-4.1-mini` vision | Parses scoreboard images |
 | Data fetching | TanStack Query ^5 | Client-side, infinite stale time, no auto-refetch |
 | Analytics | PostHog (`posthog-react-native`) | Event tracking via `lib/analytics.ts` wrapper; no-op if key not set |
-| Observability | Sentry (`@sentry/hono` + `@sentry/node` 11.12.0, server only so far) | Errors, traces, structured logs for the API; no-op if `SENTRY_DSN` not set. See Observability below |
+| Observability | Sentry: server `@sentry/hono` + `@sentry/node` 11.12.0; client `@sentry/react-native` 8.35.0 | Errors, traces, structured logs for the API and the app; no-op if `SENTRY_DSN` / `EXPO_PUBLIC_SENTRY_DSN` not set. See Observability below |
 | State | React `useState` / `useRef` | No global state library |
 | Styling | React Native `StyleSheet` \+ theme context | Dark/light/system modes |
 
@@ -178,12 +178,19 @@ lib/
 
   supabase.ts           Client Supabase instance (publishable key in prod / anon demo key locally, PKCE, AsyncStorage)
 
-  query-client.ts       getApiUrl(), apiRequest(), getQueryFn(), QueryClient; non-2xx responses
-                        throw ApiError (`.status`, message "<status>: <body>") and fire
-                        `api_request_failed` (+ `$exception` for 5xx; see isCapturedApiError)
+  query-client.ts       apiRequest(), getQueryFn(), QueryClient (re-exports getApiUrl); every
+                        request sends a fresh X-Request-Id; non-2xx responses throw ApiError
+                        (`.status`, `.requestId`, message "<status>: <body>") and fire
+                        `api_request_failed` (+ a Sentry error for 5xx; see isCapturedApiError)
+
+  api-url.ts            getApiUrl() — dependency-free, so monitoring.ts can use it before init
+
+  monitoring.ts         Sentry client wrapper (score-slinger-web) — Sentry.init, captureException/
+                        setMonitoringUser/clearMonitoringUser; null-safe (no-op if DSN missing).
+                        First import of app/\_layout.tsx
 
   analytics.ts          PostHog wrapper — client options, super props, identifyUser/track/screen/
-                        captureException/setPersonProperties/reset; null-safe (no-op if key missing)
+                        setPersonProperties/reset; null-safe (no-op if key missing). No error capture
 
 server/
 
@@ -197,8 +204,6 @@ server/
 
   log.ts                Structured logger (Sentry.logger wrapper + scrubbed console.log mirror)
 
-  scrub.ts              Secret/image redaction applied to every Sentry event, log, breadcrumb, span
-
   parsePrompt.ts        OpenAI parse prompt, model, request builder, JSON extraction + sanity checks
 
   supabase.ts           Admin Supabase client (secret / service-role key — server only)
@@ -206,6 +211,9 @@ server/
 shared/
 
   schema.ts             TypeScript Score type only — source of truth for shape
+
+  scrub.ts              Secret/image redaction for every Sentry event, log, breadcrumb, span
+                        (server and client)
 
 supabase/
 
@@ -253,15 +261,15 @@ vercel.json             Build command, output dir, /api/\* routing
 
 ### PostHog
 
-- Client-side product analytics via `posthog-react-native` (4.46.x), wrapped in `lib/analytics.ts` (`identifyUser` / `track` / `screen` / `captureException` / `setPersonProperties` / `reset`). The wrapper is **null-safe** — every call is a no-op when `EXPO_PUBLIC_POSTHOG_KEY` is unset. Bare client only — **no `PostHogProvider`** (its screen autocapture doesn't work with expo-router).  
+- Client-side product analytics via `posthog-react-native` (4.46.x), wrapped in `lib/analytics.ts` (`identifyUser` / `track` / `screen` / `setPersonProperties` / `reset`). Errors go to Sentry, not PostHog (see Observability). The wrapper is **null-safe** — every call is a no-op when `EXPO_PUBLIC_POSTHOG_KEY` is unset. Bare client only — **no `PostHogProvider`** (its screen autocapture doesn't work with expo-router).  
 - Host defaults to `https://us.i.posthog.com`; override with `EXPO_PUBLIC_POSTHOG_HOST` (set it to `https://eu.i.posthog.com` if the project is in the EU region — a wrong region returns `401` on `/flags/` and silently drops events).  
 - Events fire **browser/app → PostHog directly** (they do not pass through the Hono server, so they never appear in server logs).  
 - **Batching:** `flushAt` is 1 in dev (every event sends immediately) and 5 in prod, `flushInterval` 5s, plus a flush on every app-state change. (SDK defaults are 20 events / 10s.) `preloadFeatureFlags: false` and `disableSurveys: true` — neither is used, so their round-trips are skipped. `captureAppLifecycleEvents` stays on (the default lifecycle events listed under the catalog).  
-- **Super properties** (`register()`, on every event): `platform` (`Platform.OS`), `environment` (`EXPO_PUBLIC_VERCEL_ENV` — `production`/`preview` on Vercel — else `development` in dev / `production`), `app_version` (`expoConfig.version`), `commit` (first 7 chars of `EXPO_PUBLIC_COMMIT_SHA`, Vercel builds only). `reset()` wipes super props, so `analytics.reset()` re-registers them.  
+- **Super properties** (`register()`, on every event): `platform` (`Platform.OS`), `environment` (`APP_ENVIRONMENT` from `lib/monitoring.ts`, also Sentry's environment: `EXPO_PUBLIC_VERCEL_ENV` — `production`/`preview` on Vercel — else `development` in dev / `production`), `app_version` (`expoConfig.version`), `commit` (first 7 chars of `EXPO_PUBLIC_COMMIT_SHA`, Vercel builds only). `reset()` wipes super props, so `analytics.reset()` re-registers them.  
 - **Identify / person properties:** `AuthGate` (`app/_layout.tsx`) identifies once per app run per user from the `onAuthStateChange` listener (no separate `getSession()` call — `INITIAL_SESSION` covers it), with `$set: { email, display_name }` and `$set_once: { first_seen_at }`. Email and display name are stored on person profiles by decision. `display_name` is re-set via `setPersonProperties` when it's first set (`DisplayNameSetup`) or changed (Profile). `SIGNED_OUT` (incl. expiry / another tab) and Profile's Sign Out both call `analytics.reset()`.  
 - **`signed_in` detection:** fires only when PostHog's persisted distinct ID changes from anonymous to the user (`identifyUser()` resolves `true`) — i.e. a real sign-in, never a reload, token refresh, `USER_UPDATED`, or web tab refocus. It is deliberately **not** keyed on the Supabase `SIGNED_IN` event: Supabase also emits `SIGNED_IN` when restoring a stored session and on every web tab refocus, and the web magic-link `SIGNED_IN` can fire before the listener subscribes.  
 - **Screen tracking:** `RootLayoutNav` calls `analytics.screen()` whenever expo-router's `usePathname()` changes. Names = route path without the leading slash, `/` → `history`, dynamic segments as their pattern: `history`, `profile`, `upload`, `score/[id]` (prop `score_id`). `AuthScreen` and `DisplayNameSetup` render outside the Stack and fire `auth` / `display_name_setup` on mount. Don't add per-screen `analytics.screen()` calls elsewhere (double counting).  
-- **Error capture:** the root `<ErrorBoundary onError>` sends caught render errors via `captureException(error, { component_stack })`. `lib/query-client.ts` `throwIfResNotOk` (the single choke point for non-2xx API responses, used by `apiRequest` and the default query fn) fires `api_request_failed` and, for 5xx, `captureException(error, { route, method, status })`. Catch blocks call `captureException(err, { context, … })` where there's no HTTP status to go on or the error is otherwise swallowed: non-HTTP player-name PATCH failures, unexpected non-HTTP errors in the upload flow, errors after the auto-save succeeded (`post_save`), and a failed cleanup DELETE after a mid-save cancel (`upload_cancel_cleanup`), skipping 5xx already captured upstream (`isCapturedApiError`). SDK autocapture: `uncaughtExceptions` (RN `ErrorUtils` — native only) and `unhandledRejections` on, `console` off (explicit `*_failed` events already cover handled errors). Autocapture is ignored if the PostHog project's remote config disables exception autocapture (Project settings → Error tracking).  
+- **Error capture: none in PostHog since Sentry Phase 2.** Exception autocapture is off (`uncaughtExceptions`, `unhandledRejections`, `console` all false) and `analytics.captureException` is gone; errors go to Sentry via `lib/monitoring.ts` (see Observability). The `*_failed` product events stay, and carry `request_id` when the failure was an HTTP error. Historical `$exception` events (before Phase 2) remain in PostHog.
 - **Deliberately off:** session replay (deferred), and internal-user filtering (the owner's own usage is kept).  
 - `EXPO_PUBLIC_POSTHOG_DEBUG=true` turns on SDK debug logging (`posthog.debug(true)`).  
 - **Local dev + preview use the Non-Prod PostHog project's key; only production uses the prod key.**
@@ -294,19 +302,19 @@ Naming is `snake_case` `noun_verb`; property names are `snake_case` (all events 
 | `image_upload_failed` | Reading the image or the Storage upload failed (no parse is attempted) | `ext`, `bytes` (or null if the read failed), `source`, `error` |
 | `score_parse_started` | Parse request sent to `/api/parse-score` (only after `image_upload_succeeded`) | — |
 | `score_parse_succeeded` | Parse returned a valid result | `duration_ms` (parse request round trip), `warning` (server sanity-check text, or null), `has_exif_date` (EXIF date found server- or client-side), `has_achievement`, `team_score`, `model` (e.g. `gpt-4.1-mini`) |
-| `score_parse_failed` | Parse or the auto-save failed after a successful upload | `stage` (`parse`\|`save`\|`network`), `status` (HTTP status from `ApiError`, or null), `error`. `parse` + null status = the server answered 200 with `{ error }` (unreadable board) |
+| `score_parse_failed` | Parse or the auto-save failed after a successful upload | `stage` (`parse`\|`save`\|`network`), `status` (HTTP status from `ApiError`, or null), `error`, `request_id` (server request id from `ApiError`, or null). `parse` + null status = the server answered 200 with `{ error }` (unreadable board) |
 | `upload_canceled` | Upload screen closed (X, or unmounted e.g. swipe-down / Android back) while the analysis was still running. No later flow event fires for that upload; a save already in flight is deleted | `stage` (`upload`\|`parse`\|`save` — the step running when canceled) |
 | `parse_error_dismissed` | "Go Back" tapped on the parse-error screen | — |
 | `score_saved` | Parsed score auto-saved (`POST /api/scores`) — **before** the user keeps or discards it (see note below) | `score_id` (null only if the save response was unreadable and the id couldn't be recovered from history), `source`, `played_date_source` (`exif_server`\|`exif_client`\|`now`), `played_date_age_days` (whole days between played date and save), `duplicate_overridden`, `history_size` (shared history count incl. this score — all users, no per-user filter; null if not cached), plus gameplay: `team_score`, `achievement` (or null), `objective_fight_giant_bot`, `objective_rescue_spider_man`, `objective_destroy_giant_bot`, `score_blue`, `score_yellow`, `score_red`, `score_purple`, `top_color` (color of the highest player score; first in parse order on a tie) |
 | `score_kept` | "Done" tapped, keeping the saved score | `score_id`, `had_warning`, `names_edited_count` (colors with a custom name), `date_edited` |
 | `score_discarded` | Discard / close (X) tapped and the saved record was deleted (a 404 counts as deleted) | `score_id`, `had_warning`, `names_edited_count`, `date_edited` |
-| `score_discard_failed` | Discard DELETE failed (non-404); the screen stays open with an inline error for retry | `score_id`, `status` (HTTP status, or null for network/other), `error` |
+| `score_discard_failed` | Discard DELETE failed (non-404); the screen stays open with an inline error for retry | `score_id`, `status` (HTTP status, or null for network/other), `error`, `request_id` (or null) |
 | `played_date_edit_started` | Played-date editor opened | — |
 | `played_date_changed` | Played date saved (persisted via `PATCH /api/scores/:id/played-date` when the score was auto-saved; local-only otherwise). Upload screen only — Score Detail has no date editor | `location` (`upload`), `score_id` (null if the auto-save failed), `delta_minutes` (new minus old, rounded) |
-| `played_date_change_failed` | Played-date PATCH failed (modal stays open with inline error) | `location` (`upload`), `score_id`, `error` |
+| `played_date_change_failed` | Played-date PATCH failed (modal stays open with inline error) | `location` (`upload`), `score_id`, `error`, `request_id` (or null) |
 | `player_name_edit_started` | A player-name field opened for editing | `location` (`upload`\|`detail`) |
 | `player_names_updated` | A player name label saved to the server (not sent if the PATCH fails, or on upload when the auto-save failed) | `location` (`upload`\|`detail`), `score_id`, `color` |
-| `player_names_update_failed` | Player-name PATCH failed; the label reverts and an error toast shows | `location` (`upload`\|`detail`), `score_id`, `status` (HTTP status, or null for network/other) |
+| `player_names_update_failed` | Player-name PATCH failed; the label reverts and an error toast shows | `location` (`upload`\|`detail`), `score_id`, `status` (HTTP status, or null for network/other), `request_id` (or null) |
 | `history_loaded` | History tab's score list first arrives (once per mount) | `count`, `is_empty` |
 | `history_sort_opened` | History sort picker opened | — |
 | `history_sort_changed` | History sort option chosen (also updates the `default_sort` person property — same stored setting) | `sort` |
@@ -317,8 +325,8 @@ Naming is `snake_case` `noun_verb`; property names are `snake_case` (all events 
 | `score_delete_requested` | Delete initiated (opens confirm) | `via` (`swipe`\|`detail_button`), `score_id` |
 | `score_delete_canceled` | Delete confirm dismissed | `source` (`history`\|`detail`), `score_id` |
 | `score_deleted` | Delete confirmed and completed (fires once per success; a 404 counts as success) | `source`, `score_id`, `already_deleted?` (`true` only when the server returned 404) |
-| `score_delete_failed` | Delete request failed (non-404 error); modal stays open for retry | `source` (`history`\|`detail`), `score_id`, `error` |
-| `api_request_failed` | Any API call got a non-2xx response (fired in `throwIfResNotOk`; network errors with no response are not included) | `route` (normalized, e.g. `/api/scores/:id/image-url`), `method`, `status` |
+| `score_delete_failed` | Delete request failed (non-404 error); modal stays open for retry | `source` (`history`\|`detail`), `score_id`, `error`, `request_id` (or null) |
+| `api_request_failed` | Any API call got a non-2xx response (fired in `throwIfResNotOk`; network errors with no response are not included) | `route` (normalized, e.g. `/api/scores/:id/image-url`), `method`, `status`, `request_id` (the response's `X-Request-Id`, else the one sent) |
 | `appearance_changed` | Theme changed in Profile | `mode` (`dark`\|`light`\|`system`) |
 | `date_format_changed` | Date format changed in Profile | `format` |
 | `default_sort_changed` | Default sort changed in Profile | `sort` |
@@ -335,7 +343,7 @@ SDK / automatic events (not from `track()`):
 
 - `$identify` (or `$set` when re-identifying the same user) — from `analytics.identifyUser()`; person props `email`, `display_name`, `first_seen_at`. `analytics.setPersonProperties(...)` also emits `$set`.
 - `$screen` — `$screen_name` is one of `history`, `profile`, `upload`, `score/[id]` (+ `score_id`), `auth`, `display_name_setup` (see Screen tracking above).
-- `$exception` — `ErrorBoundary` render errors (`component_stack`), 5xx API responses (`route`, `method`, `status`), catch blocks (`context`: `player_names_update` / `analyze_image` / `post_save` / `upload_cancel_cleanup`), plus SDK autocapture (uncaught errors on native, unhandled promise rejections).
+- `$exception` — no longer sent since Sentry Phase 2 (errors go to Sentry). Older data has `ErrorBoundary` render errors, 5xx API responses and catch-block captures.
 - `Application Opened` / `Application Became Active` / `Application Backgrounded` / `Application Installed` / `Application Updated` — lifecycle defaults.
 
 `analytics.reset()` runs on sign-out.
@@ -346,19 +354,26 @@ SDK / automatic events (not from `track()`):
 - **Sign-in funnel:** `sign_in_requested` → `signed_in`.
 - **Parse quality:** warning rate (`score_parse_succeeded` where `warning` is set ÷ all `score_parse_succeeded`); discard rate (`score_discarded` ÷ `score_saved`); name-correction rate (`score_kept` where `names_edited_count` > 0 ÷ `score_kept`, or `player_names_updated` with `location = upload`); `duration_ms` p50/p95 on `score_parse_succeeded`.
 - **Retention:** monthly retention on `score_saved`.
-- **Errors:** `$exception` trends; `score_parse_failed` broken down by `stage`; `api_request_failed` broken down by `route` and `status`; `image_upload_failed` count.
+- **Errors:** (exceptions live in Sentry now) `score_parse_failed` broken down by `stage`; `api_request_failed` broken down by `route` and `status`; `image_upload_failed` count.
 - **Gameplay stats** (on `score_saved`, ideally excluding discarded `score_id`s): average `team_score`; `top_color` distribution; averages of `score_blue` / `score_yellow` / `score_red` / `score_purple` and the three `objective_*` props.
 
 ### Observability (Sentry)
 
-Plan and phases: `docs/SENTRY_PLAN.md`. **Phase 1 (server) is implemented**; client SDK, source maps and replay are later phases.
+Plan and phases: `docs/SENTRY_PLAN.md`. **Phase 1 (server) is live; Phase 2 (client SDK) is implemented**; source maps (Phase 3) and optional replay (Phase 4) follow.
 
-- **Split:** PostHog = product analytics (client, what users do; the client `*_failed` events stay). Sentry = engineering telemetry (errors, traces, structured logs). Today Sentry covers only the API (Sentry project `score-slinger-api`); the client project `score-slinger-web` arrives in Phase 2.
+- **Split:** PostHog = product analytics (client, what users do; the client `*_failed` events stay, now with `request_id`). Sentry = engineering telemetry (errors, traces, structured logs) in two projects: `score-slinger-api` (server) and `score-slinger-web` (client). Since Phase 2, **every exception goes to Sentry only**: PostHog exception autocapture is off and `analytics.captureException` no longer exists.
 - **Why:** Vercel Hobby keeps runtime logs for 1 hour. Sentry keeps the per-request access log, parse results and errors for its retention window, on the $0 free plan.
-- **Init:** `server/instrument.ts`, imported as the **first line** of `api/index.ts` and `server/index.ts` (keep it first). `environment` = `VERCEL_ENV` (`production` / `preview`, `development` locally); `release` = `SENTRY_RELEASE` ?? `VERCEL_GIT_COMMIT_SHA`; `tracesSampleRate` 1.0; `OPTIONS` spans ignored. Logs are on by default in SDK v11 (no `enableLogs` option).
+- **Server init:** `server/instrument.ts`, imported as the **first line** of `api/index.ts` and `server/index.ts` (keep it first). `environment` = `VERCEL_ENV` (`production` / `preview`, `development` locally); `release` = `SENTRY_RELEASE` ?? `VERCEL_GIT_COMMIT_SHA`; `tracesSampleRate` 1.0; `OPTIONS` spans ignored. Logs are on by default in SDK v11 (no `enableLogs` option).
 - **No-op without a DSN:** with `SENTRY_DSN` unset (local default) the SDK initialises but sends nothing, and `server/log.ts` skips `Sentry.logger`. Every log line is still mirrored to the console.
-- **Privacy:** explicit `dataCollection`: no bodies, headers, cookies, query strings, IP/inferred user info, DB query data, stack-frame locals, or GenAI inputs (the OpenAI request holds the base64 image). `requireAuth` calls `Sentry.setUser({ id, username: display_name })`, **never email**. `server/scrub.ts` redacts JWTs, `sb_secret_…` / `sb_publishable_…`, `sk-…`, `token=` / `code=` values and `data:image/…` strings in every event, log, breadcrumb and span (`beforeSend` / `beforeSendLog` / `beforeBreadcrumb` / `beforeSendSpan`).
+- **Privacy:** explicit `dataCollection`: no bodies, headers, cookies, query strings, IP/inferred user info, DB query data, stack-frame locals, or GenAI inputs (the OpenAI request holds the base64 image). `requireAuth` calls `Sentry.setUser({ id, username: display_name })`, **never email**. `shared/scrub.ts` (shared with the client) redacts JWTs, `sb_secret_…` / `sb_publishable_…`, `sk-…`, `token=` / `code=` values and `data:image/…` strings in every event, log, breadcrumb and span (`beforeSend` / `beforeSendLog` / `beforeBreadcrumb` / `beforeSendSpan`).
 - **Request correlation:** middleware order is `sentry(app)` → request-id → `cors` → `requireAuth`. The request-id middleware accepts an incoming `X-Request-Id` (≤64 chars of `[\w-]`) or mints `crypto.randomUUID()`, sets `request_id`, `route` (matched path pattern, e.g. `/api/scores/:id`) and `method` as Sentry tags + scope attributes (so every log/error/span carries them), and echoes `X-Request-Id` in the response (CORS-exposed). Unexpected 500s also return `requestId` in the JSON body next to the unchanged `error` string. To investigate a failure, search Sentry Logs/Issues for `request_id:<id>`.
+- **Client init:** `lib/monitoring.ts` (`@sentry/react-native` 8.35.0, project `score-slinger-web`), imported as the **first line** of `app/_layout.tsx` (keep it first); the root layout is exported as `Sentry.wrap(RootLayout)`. Sentry.init is called **only when `EXPO_PUBLIC_SENTRY_DSN` is set**: without it (local default) there is no instrumentation, no trace headers and nothing is sent, and every `monitoring` export is a no-op. Options: `environment` = `APP_ENVIRONMENT` (same as PostHog's super prop), `release` = `EXPO_PUBLIC_COMMIT_SHA` (the full SHA, same as the server), `tracesSampleRate` 1.0, `expoRouterIntegration()` (navigation spans named by route pattern), `enableLogs` (only explicit `Sentry.logger.*` calls; web doesn't auto-capture console), `beforeSendLog` drops `debug`/`trace` in production, `sendDefaultPii: false`, `maxBreadcrumbs` 50, `ignoreErrors` / `denyUrls` for `ResizeObserver` and browser-extension noise. `beforeSend` / `beforeSendTransaction` / `beforeBreadcrumb` / `beforeSendLog` all run `scrubDeep`, which also strips `code=` / `token=` from navigation and fetch breadcrumb URLs (magic-link PKCE codes, signed-URL tokens).
+- **Client API:** `captureException(err, { tags?, extra?, contexts? })`, `setMonitoringUser({ id, username })` (AuthGate, where PostHog identifies; also when the display name is first set) and `clearMonitoringUser()` (where `analytics.reset()` runs: `SIGNED_OUT` and Profile's Sign Out). **Never email.** Call sites: the root `ErrorBoundary` (`contexts.react.componentStack`, tag `context: error_boundary`); `throwIfResNotOk` for 5xx (tags `route`, `method`, `status`, `request_id`); catch blocks with tag `context` = `post_save` / `upload_cancel_cleanup` / `analyze_image` / `player_names_update`, skipping 5xx already captured upstream (`isCapturedApiError`). Uncaught errors and unhandled rejections are captured by the SDK's global handlers.
+- **Trace propagation:** `tracePropagationTargets` is a single regex for `${getApiUrl()}/api/`, so `sentry-trace` / `baggage` go to our API only (CORS already allows them) and **never to `*.supabase.co`**: the client uploads straight to Supabase Storage, and extra headers there would fail CORS preflight. A client `http.client` span and the server transaction share one trace.
+- **Client fetch:** `lib/query-client.ts` calls `globalThis.fetch` at request time instead of importing `expo/fetch`. On web, `expo/fetch` is `export const fetch = globalThis.fetch` (`node_modules/expo/src/winter/fetch/fetch.web.ts`), captured when that module first loads, possibly before `Sentry.init` replaces `globalThis.fetch`; such a reference would bypass breadcrumbs, spans and trace headers. On native (SDK 56) `globalThis.fetch` is expo/fetch anyway (`expo/src/winter/runtime.native.ts`).
+- **Request correlation, client → server:** `apiRequest` / `getQueryFn` send a fresh `X-Request-Id` (`expo-crypto` `randomUUID`; omitted if unavailable, e.g. web over LAN `http://`, and the server mints one). `ApiError.requestId` comes from the response's `X-Request-Id` (CORS-exposed), falling back to the id sent. It's on `api_request_failed`, the other `*_failed` events (`requestIdOf(err)`), and the `request_id` tag of 5xx Sentry events, so a PostHog failure or client issue leads straight to the server's logs and trace: search `request_id:<id>` in both Sentry projects.
+- **Bundle:** `metro.config.js` uses `getSentryExpoConfig(__dirname, { includeWebReplay: false, includeWebFeedback: false })` (Debug IDs, no replay/feedback packages; `annotateReactComponents` off because of the React Compiler). It also resolves every bare `@sentry/core` import from `@sentry/react-native`'s copy: the server's `@sentry/core` 11.x sits at the top of `node_modules`, so npm nests a separate 10.x copy under each client `@sentry/*` package, and without this the web bundle carried several (measured on the dev server's minified prod bundle: 8.17 MB → 6.73 MB, gzip 1.81 MB → 1.46 MB).
+- **Version note:** `npx expo install` picks `@sentry/react-native` ~7.11.0 (Expo's `bundledNativeModules.json` hasn't moved since January 2026, even in SDK 57), which predates SDK 56's `expo/fetch` support (8.14.0) and has no `expoRouterIntegration`. It's pinned to 8.35.0 instead, and `package.json` → `expo.install.exclude` keeps `expo install --check` / expo-doctor from flagging it.
 - **Serverless flush:** `@sentry/node` 11.12.0 registers a Vercel keep-alive when `process.env.VERCEL` is set (`setupVercelKeepAlive`): on each `http.server.response.finish` it calls the Vercel request context's `waitUntil` to wait for the root span and then `client.flush(2000)`. No `@vercel/functions` dependency needed.
 - **Logging rule:** server code uses `log.{debug,info,warn,error}(event, attrs)` from `server/log.ts`, never bare `console.*` (the `server/index.ts` startup line is the one exception). `consoleLoggingIntegration` captures any remaining `console.warn/error` as a safety net; `log.ts` mirrors to `console.log`, so nothing is duplicated. Never pass image bytes, base64, tokens or keys as attributes.
 - **Route errors:** catch-alls call `fail(c, event, err, message)`: `Sentry.captureException` (Supabase plain-object errors are wrapped in an `Error`), logs `<event>.failed { error_message }`, returns `{ error: message, requestId }` with 500. The image-url route keeps its 200 `{ url: null }` fallback but still reports.
@@ -437,6 +452,8 @@ EXPO\_PUBLIC\_DOMAIN=www.slingers.app   \# must match browsing domain, no https:
 ALLOWED\_ORIGINS=https://www.slingers.app,https://slingers.app
 
 SENTRY\_DSN=                          \# score-slinger-api project DSN — Production + Preview (server-only; leave unset locally)
+
+EXPO\_PUBLIC\_SENTRY\_DSN=             \# score-slinger-web project DSN — Production + Preview (baked into the bundle; redeploy without build cache after changing)
 
 ### Database setup
 

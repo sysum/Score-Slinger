@@ -1,6 +1,6 @@
 # Sentry plan
 
-Status as of 2026-11-25: **Phase 1 (server) implemented** on `feat/sentry-server`. Phase 0 needs the user. Phases 2–4 are not started.
+Status as of 2026-11-25: **Phase 0 and Phase 1 (server) done**: merged as PR #19 and verified in production (logs, traces and errors reach `score-slinger-api` in org `team-beam`). **Phase 2 (client) implemented** on `feat/sentry-client`, awaiting `EXPO_PUBLIC_SENTRY_DSN` in Vercel and a preview check. Phase 4 is not started.
 
 ## Why
 
@@ -22,7 +22,7 @@ Status as of 2026-11-25: **Phase 1 (server) implemented** on `feat/sentry-server
 
 ## Phases
 
-### Phase 0: Sentry dashboard setup (user)
+### Phase 0: Sentry dashboard setup (user) — done
 
 1. Create a Sentry account/org on the free (Developer) plan, US data region.
 2. Create project **`score-slinger-api`** (platform: Node.js / Hono). Copy its DSN (Settings → Projects → score-slinger-api → Client Keys (DSN)).
@@ -35,7 +35,7 @@ Status as of 2026-11-25: **Phase 1 (server) implemented** on `feat/sentry-server
 9. Verify on a preview: hit the app, then check Sentry → Explore → Logs for `request.completed`, Traces for `GET /api/scores`, and filter by `environment:preview`.
 10. Optional alerts: an issue alert for new issues in `production` (email), and one for `parse.no_json` / `*.failed` log volume if Sentry's log alerts are available on the plan.
 
-### Phase 1: Server (implemented)
+### Phase 1: Server — done (PR #19, verified in production)
 
 - `@sentry/hono` + `@sentry/node`, both pinned to exactly **11.12.0** (newest release ≥2 weeks old at install time). `honoIntegration` and `@hono/sentry` are deprecated/removed; not used.
 - `server/instrument.ts` calls `Sentry.init` from `@sentry/hono/node`. It's imported as the **first line** of `api/index.ts` and `server/index.ts`.
@@ -53,13 +53,25 @@ Status as of 2026-11-25: **Phase 1 (server) implemented** on `feat/sentry-server
 - `fail(c, event, err, message)`: `captureException` + `<event>.failed` log + `{ error: message, requestId }` with 500. Error strings and status codes are unchanged.
 - **Serverless flush:** `@sentry/node` 11.12.0 calls `setupVercelKeepAlive(client)` in `init` when `process.env.VERCEL` is set. It subscribes to the `http.server.response.finish` diagnostics channel and calls the Vercel request context's `waitUntil(...)`, which waits up to 2 s for the root span and then runs `client.flush(2000)`. No `@vercel/functions` needed. If Phase 0 step 9 shows missing logs or spans in Vercel, add `waitUntil(Sentry.flush(2000))` from `@vercel/functions` in the request-id middleware.
 
-### Phase 2: Client SDK + PostHog error-capture split
+### Phase 2: Client SDK + PostHog error-capture split (implemented on `feat/sentry-client`)
+
+Plan as approved:
 
 - Add the Sentry React Native / Expo SDK in the client with `EXPO_PUBLIC_SENTRY_DSN` (project `score-slinger-web`). No-op when unset, same rule as the server.
 - New `lib/monitoring.ts` wrapper (null-safe, like `lib/analytics.ts`). Move every `analytics.captureException` call site there: the `ErrorBoundary` `onError`, 5xx in `throwIfResNotOk`, the catch blocks (`post_save`, `upload_cancel_cleanup`, player names, analyze image).
 - **PostHog exception autocapture off** (`uncaughtExceptions`, `unhandledRejections`), so errors go to Sentry only. PostHog `*_failed` events stay for funnels.
 - Send `X-Request-Id` from `lib/query-client.ts` (or read the echoed one) and attach it to client errors. Enable `tracePropagationTargets` for the API origin so `sentry-trace` / `baggage` connect client and server traces (CORS already allows them).
 - `Sentry.setUser({ id, username: display_name })`, no email.
+
+As implemented (details in CONTEXT.md → Observability):
+
+- `@sentry/react-native` pinned to **8.35.0** (2026-11-12). `npx expo install` chose ~7.11.0 from Expo's stale `bundledNativeModules.json`; 7.11.0 lacks `expoRouterIntegration` and SDK 56 `expo/fetch` support (8.14.0). 8.36.0 was <14 days old. `expo.install.exclude` in `package.json` keeps expo-doctor quiet about it.
+- `lib/monitoring.ts`, first import of `app/_layout.tsx`. `Sentry.init` runs **only with `EXPO_PUBLIC_SENTRY_DSN`**. `environment` = `APP_ENVIRONMENT` (also PostHog's), `release` = `EXPO_PUBLIC_COMMIT_SHA`, `tracesSampleRate` 1.0, `tracePropagationTargets` = `^${getApiUrl()}/api/` only, `expoRouterIntegration()`, `enableLogs` with `beforeSendLog` dropping debug/trace in production, `sendDefaultPii: false`, `maxBreadcrumbs` 50, `ignoreErrors` / `denyUrls`, scrubbing in `beforeSend` / `beforeSendTransaction` / `beforeBreadcrumb` / `beforeSendLog`.
+- `metro.config.js`: `getSentryExpoConfig(__dirname, { includeWebReplay: false, includeWebFeedback: false })`, no `annotateReactComponents` (React Compiler). Plus a resolver that makes every bare `@sentry/core` import use `@sentry/react-native`'s copy (the server's hoisted 11.x forces npm to nest a 10.x copy per client package): minified bundle 8.17 MB → 6.73 MB.
+- `app.json`: `["@sentry/react-native/expo", { organization: "team-beam", project: "score-slinger-web" }]`. Native-only mods; `expo export` reads the config with `skipPlugins: true`, and no token is needed.
+- `expo/fetch` on web is `globalThis.fetch` captured at module load, which can predate Sentry's patch of `globalThis.fetch`, so `lib/query-client.ts` calls `globalThis.fetch` per request.
+- Request ids: `X-Request-Id` on every API request, `ApiError.requestId`, `request_id` on `api_request_failed` / the other `*_failed` events / 5xx Sentry tags.
+- Dashboard (user): in `score-slinger-web` → Settings → Security & Privacy, keep the data scrubbers on and turn on **Prevent Storing of IP Addresses**, as for the api project.
 
 ### Phase 3: Source maps
 
@@ -100,7 +112,7 @@ SDK `dataCollection` (explicit, so an SDK default change can't widen it):
 | `databaseQueryData` | `false` | |
 | `stackFrameVariables` | `false` | Locals include the token, image buffer and base64 string |
 
-`server/scrub.ts` regexes run on every string in events, logs, breadcrumbs and spans (and the console mirror):
+`shared/scrub.ts` regexes (moved from `server/scrub.ts` in Phase 2; used by server and client) run on every string in events, logs, breadcrumbs and spans (and the server's console mirror):
 
 | Pattern | Replacement |
 | :---- | :---- |

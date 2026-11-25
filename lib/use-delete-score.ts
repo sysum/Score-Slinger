@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { apiRequest, ApiError } from "@/lib/query-client";
+import { apiRequest, ApiError, requestIdOf } from "@/lib/query-client";
 import { analytics } from "@/lib/analytics";
 import { useToast } from "@/contexts/ToastContext";
 
@@ -68,6 +68,7 @@ export function useDeleteScore(source: DeleteSource) {
           source,
           score_id: scoreId,
           error: err instanceof Error ? err.message : String(err),
+          request_id: requestIdOf(err),
         });
         setError(DELETE_ERROR_MESSAGE);
         setIsDeleting(false);

@@ -1,3 +1,11 @@
+// Must stay the first import: initialises Sentry (lib/monitoring.ts) before
+// anything else loads, including lib/query-client.
+import {
+  captureException,
+  clearMonitoringUser,
+  setMonitoringUser,
+} from "@/lib/monitoring";
+import * as Sentry from "@sentry/react-native";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Stack, usePathname } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
@@ -188,12 +196,18 @@ function AuthGate({ children }: { children: React.ReactNode }) {
       if (!user) {
         // Also covers session expiry and sign-out from another tab. Profile's
         // sign-out resets first; a second reset is harmless.
-        if (event === "SIGNED_OUT" && identifiedUserId.current) analytics.reset();
+        if (event === "SIGNED_OUT" && identifiedUserId.current) {
+          analytics.reset();
+          clearMonitoringUser();
+        }
         identifiedUserId.current = null;
         return;
       }
       if (identifiedUserId.current === user.id) return;
       identifiedUserId.current = user.id;
+      const displayName = user.user_metadata?.display_name as string | undefined;
+      // Sentry gets the id + display name only, never the email (decision).
+      setMonitoringUser({ id: user.id, username: displayName });
       // Not keyed on event === "SIGNED_IN": Supabase also emits SIGNED_IN when
       // it restores a stored session (and on every web tab refocus), and the
       // web magic-link SIGNED_IN can fire before this listener subscribes.
@@ -202,7 +216,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
         .identifyUser({
           id: user.id,
           email: user.email,
-          displayName: user.user_metadata?.display_name as string | undefined,
+          displayName,
         })
         .then((isNewIdentity) => {
           if (isNewIdentity) {
@@ -255,6 +269,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     await AsyncStorage.setItem("display_name", name);
     supabase.auth.updateUser({ data: { display_name: name } });
     analytics.setPersonProperties({ display_name: name });
+    if (session?.user) setMonitoringUser({ id: session.user.id, username: name });
     analytics.track("display_name_set");
   };
 
@@ -314,7 +329,7 @@ function RootLayoutNav() {
   );
 }
 
-export default function RootLayout() {
+function RootLayout() {
   const [fontsLoaded] = useFonts({
     DMSans_400Regular,
     DMSans_500Medium,
@@ -337,7 +352,10 @@ export default function RootLayout() {
   return (
     <ErrorBoundary
       onError={(error, componentStack) =>
-        analytics.captureException(error, { component_stack: componentStack })
+        captureException(error, {
+          tags: { context: "error_boundary" },
+          contexts: { react: { componentStack } },
+        })
       }
     >
       <QueryClientProvider client={queryClient}>
@@ -358,3 +376,6 @@ export default function RootLayout() {
     </ErrorBoundary>
   );
 }
+
+// Sentry.wrap adds touch breadcrumbs and a React profiler; inert without a DSN.
+export default Sentry.wrap(RootLayout);

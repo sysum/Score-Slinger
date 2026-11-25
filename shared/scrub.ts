@@ -1,6 +1,10 @@
 // Redacts secrets and image data from anything sent to Sentry (events, logs,
 // breadcrumbs, spans) and from the console mirror in server/log.ts.
 // Applied to every string value, at any depth.
+//
+// Shared by the server (server/instrument.ts, server/log.ts) and the client
+// (lib/monitoring.ts), so both Sentry projects redact the same patterns.
+// Keep it dependency-free: it's bundled into the web app and the API function.
 
 const PATTERNS: [RegExp, string][] = [
   // Inline base64 images (the OpenAI request carries one). Checked first so the
