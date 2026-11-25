@@ -18,7 +18,9 @@ No major initiative in flight. The app is healthy and in production; the depende
 
 **Fix:** prompt moved to `server/parsePrompt.ts` (system prompt, user text, model, `buildParseRequest`, `extractParsedJson`, `checkParsedScore`) so offline validation can exercise the exact production request. Prompt now derives color only from each panel's background/digit color and says positions vary; each player gets a `position` field (traceability, stored in `players` JSONB; `Score.players[].position?` is optional). JSON mode (`response_format: json_object`) on, regex extraction kept as fallback. Post-parse sanity checks (4 players, colors exactly {blue,yellow,red,purple}; players + 3 objectives === teamScore) `console.warn` and add a `warning` string to the response — they never block the save. **Note:** a within-column color swap passes both sanity checks (same set of colors, same sum), so they can't catch this specific bug — only the prompt fix does.
 
-**Status:** code complete, tsc/lint clean. **Live validation against OpenAI blocked** — the prod OpenAI org hit its enforced spend limit (429), which also means prod parsing is failing until the limit is raised. **Prod data:** besides Oct 27 (corrected), the Aug 25 and Sep 29 2025 rows have wrong colors (partial swaps), and Aug 25's `rescueSpiderMan` is 70000 (board says 37,000).
+**Validation (live OpenAI, 5 prod images, ground truth checked by eye + sum):** old prompt on Oct 27 → red/purple swapped in 3/3 runs (reproduces the bug). New prompt + `gpt-4o-mini` → colors 25/25 correct, but Aug 25's glare-washed "Rescue Spider-Man" 37,000 misread as 70,000/77,000/70,700 in 5/5 runs (the sum check flagged every one). New prompt + `gpt-4.1-mini` → 25/25 exact on every field; `gpt-4o` → 5/5 exact on Aug 25. **Switched production model to `gpt-4.1-mini`** — most accurate and cheapest per photo (~6k input tokens vs ~26k for 4o-mini, which bills images at a high token multiplier).
+
+**Status:** code complete, validated, tsc/lint clean; awaiting review (no PR yet). Prod rows Aug 25, Sep 29 and Oct 27 have been corrected by hand.
 
 ---
 

@@ -21,7 +21,7 @@ This is a small, invite-only app for a group of friends/family. There is no publ
 | Database | Supabase PostgreSQL | Queried directly via `@supabase/supabase-js` — **no ORM** |
 | Image storage | Supabase Storage | Private bucket named `scores` |
 | Auth | Supabase Auth | Magic link only, PKCE flow, invite-only |
-| AI | OpenAI `gpt-4o-mini` vision | Parses scoreboard images |
+| AI | OpenAI `gpt-4.1-mini` vision | Parses scoreboard images |
 | Data fetching | TanStack Query ^5 | Client-side, infinite stale time, no auto-refetch |
 | Analytics | PostHog (`posthog-react-native`) | Event tracking via `lib/analytics.ts` wrapper; no-op if key not set |
 | State | React `useState` / `useRef` | No global state library |
@@ -199,8 +199,10 @@ vercel.json             Build command, output dir, /api/\* routing
 
 ### OpenAI
 
-- Model: `gpt-4o-mini` (vision)  
+- Model: `gpt-4.1-mini` (vision) — switched from `gpt-4o-mini` on 2026-11-24 after validation (see PROJECT\_STATE.md)  
 - Used in `POST /api/parse-score` only  
+- Prompt, model and request options live in `server/parsePrompt.ts` (JSON mode on). Player color is identified from each panel's own background/digit color — panel positions vary by ride vehicle and must never be assumed  
+- Post-parse sanity checks (4 players, colors exactly blue/yellow/red/purple; players + 3 objectives === teamScore) log `console.warn` and add a `warning` string to the response; they never block the save  
 - Image passed as base64 data URL, transiently — never stored  
 - Key: `OPENAI_API_KEY` (server-only)
 

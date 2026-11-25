@@ -3,7 +3,11 @@
 // production prompt, model, and request options.
 import type { ChatCompletionCreateParamsNonStreaming } from "openai/resources/chat/completions";
 
-export const PARSE_MODEL = "gpt-4o-mini";
+// gpt-4.1-mini over gpt-4o-mini (2026-11-24 validation, 5 prod boards × 5 runs):
+// gpt-4o-mini misread the glare-washed Aug 25 board's "Rescue Spider-Man" 37,000
+// as 70,000 in 5/5 runs; gpt-4.1-mini was 25/25 exact on every field, and is
+// cheaper per image (~6k vs ~26k input tokens for a phone photo).
+export const PARSE_MODEL = "gpt-4.1-mini";
 
 export const PLAYER_COLORS = ["blue", "yellow", "red", "purple"] as const;
 export const PANEL_POSITIONS = ["top-left", "bottom-left", "top-right", "bottom-right"] as const;
