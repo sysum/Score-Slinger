@@ -80,7 +80,7 @@ Score Slinger is a mobile \+ web app for logging scores from theme park ride gam
 
 │   ├── query-client.ts   \# TanStack Query setup \+ apiRequest helper \+ getApiUrl()
 
-│   └── supabase.ts       \# Client-side Supabase instance (anon key, PKCE, AsyncStorage)
+│   └── supabase.ts       \# Client-side Supabase instance (publishable key in prod / anon demo key locally, PKCE, AsyncStorage)
 
 ├── server/
 
@@ -192,7 +192,7 @@ See `.env.example` for the full list.
 
 - `EXPO_PUBLIC_*` — safe for the client (Expo app), bundled into the app build  
 - Everything else — server-only, set in Vercel dashboard for production
-- **Local `.env` points at the local Supabase stack** (`SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_URL` = `http://127.0.0.1:54321`; service-role + anon keys from `supabase status -o env` — well-known local demo keys, not secrets). Prod values live in `.env.prod-reference` (gitignored; never commit). Switching to prod is a deliberate `cp .env.prod-reference .env`. `OPENAI_API_KEY` and the Non-Prod PostHog key are unchanged.
+- **Local `.env` points at the local Supabase stack** (`SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_URL` = `http://127.0.0.1:54321`; service-role + anon keys from `supabase status -o env` — well-known local demo keys, not secrets). Prod uses a secret key (`sb_secret_…`) server-side and a publishable key (`sb_publishable_…`, in `EXPO_PUBLIC_SUPABASE_ANON_KEY`; name kept for compatibility); the legacy JWT keys are disabled in prod. Prod values live in `.env.prod-reference` (gitignored; never commit). Switching to prod is a deliberate `cp .env.prod-reference .env`. `OPENAI_API_KEY` and the Non-Prod PostHog key are unchanged.
 
 ### Required variables
 

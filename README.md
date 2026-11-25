@@ -68,7 +68,7 @@ cp .env.example .env
 | `SUPABASE_URL` | Supabase → Project Settings → API → Project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server-only, bypasses RLS. Prod: a Supabase **secret key** (`sb_secret_…`, Project Settings → API Keys), stored as a Vercel Secret — the variable name is kept for compatibility. Local: the service-role demo key from `supabase status -o env` |
 | `EXPO_PUBLIC_SUPABASE_URL` | Same as `SUPABASE_URL` |
-| `EXPO_PUBLIC_SUPABASE_ANON_KEY` | Supabase → Project Settings → API → `anon` / public key |
+| `EXPO_PUBLIC_SUPABASE_ANON_KEY` | Prod: a Supabase **publishable key** (`sb_publishable_…`, Project Settings → API Keys); public by design, the variable name is kept for compatibility. Legacy JWT keys are disabled in prod. Local: the anon demo key from `supabase status -o env` |
 | `EXPO_PUBLIC_DOMAIN` | `localhost:5055` for local dev — no `https://` prefix |
 | `EXPO_PUBLIC_POSTHOG_KEY` | (optional) PostHog project API key |
 | `EXPO_PUBLIC_POSTHOG_HOST` | (optional) PostHog ingest host — defaults to `https://us.i.posthog.com` |
