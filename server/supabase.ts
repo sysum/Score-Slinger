@@ -10,4 +10,7 @@ if (!supabaseUrl || !supabaseServiceRoleKey) {
 }
 
 // Admin client — bypasses RLS. Never expose this key to the client.
+// Prod: a Supabase secret key (sb_secret_...) stored as a Vercel Secret; the env var
+// name SUPABASE_SERVICE_ROLE_KEY is kept for compatibility. Local: the service-role
+// demo key from `supabase status -o env`.
 export const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey);

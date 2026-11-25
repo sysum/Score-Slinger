@@ -22,6 +22,12 @@ No major initiative in flight. The app is healthy and in production; the depende
 
 **Status:** code complete, validated, tsc/lint clean; in review as PR #10. Prod rows Aug 25, Sep 29 and Oct 27 have been corrected by hand.
 
+### Post-deploy follow-ups (branch `fix/post-deploy-followups`, 2026-11-24)
+
+- **Blank player names:** the prompt schema said `"name": "<player name or identifier>"`; the board shows no names, so `gpt-4.1-mini` could return `""` and the UI (which falls back to `player.name`) rendered blank labels. Prompt now asks for the capitalized color name, and `normalizePlayerNames()` (in `server/parsePrompt.ts`, called in `/api/parse-score` before the sanity checks) fills any missing/blank name with the capitalized color. Re-validated live (gpt-4.1-mini, 3 runs x 5 boards): all fields exact, names returned as color names every time.
+- **DELETE race:** `DELETE /api/scores/:id` no longer uses `.single()` on the delete step; 0 rows deleted returns 404 `Score not found` (no error log) instead of a 500 from PGRST116. Client-side delete UX is deliberately deferred (see Next Steps item 13).
+- **Docs:** prod `SUPABASE_SERVICE_ROLE_KEY` is now a Supabase secret key (`sb_secret_…`) stored as a Vercel Secret; variable name kept for compatibility, code unchanged. Docs reworded accordingly.
+
 ---
 
 ## Recently Completed (shipped to `main`)
@@ -178,4 +184,7 @@ Backlog, no active work:
 8. Future: profile photo support (avatar circle already in place — swap initials for `<Image>`)  
 9. Future: email/password auth as second method in `components/AuthScreen.tsx`  
 10. Future: per-user score filtering via RLS on `scores` table
+11. **Supabase key phase 2** — swap `EXPO_PUBLIC_SUPABASE_ANON_KEY` → `sb_publishable_…` (no-cache rebuild), verify, then disable legacy JWT keys. (Prod server key is already a `sb_secret_…` secret key stored as a Vercel Secret in `SUPABASE_SERVICE_ROLE_KEY`.)  
+12. **Vercel env cleanup** — delete the readable Development-only `SUPABASE_SERVICE_ROLE_KEY` / `OPENAI_API_KEY` vars in Vercel
+13. **Delete UX feedback** — the delete confirmation gives no feedback that the delete is in progress. Users tap Confirm again, causing duplicate DELETE requests (seen in prod 2026-11-24; the server now returns 404 for the duplicate). Add an in-progress state (disabled button / "Deleting…" / spinner) and a success confirmation (e.g. toast or optimistic removal) on both the History swipe-delete modal and the Score Detail delete modal.  
 

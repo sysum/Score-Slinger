@@ -163,7 +163,7 @@ server/
 
   index.ts              Local dev entry point (node-server, port 5055\)
 
-  supabase.ts           Admin Supabase client (service role key — server only)
+  supabase.ts           Admin Supabase client (secret / service-role key — server only)
 
 shared/
 
@@ -192,7 +192,7 @@ vercel.json             Build command, output dir, /api/\* routing
 - **Known risk:** Vercel preview deployments still point at the prod Supabase project (local can't serve them).  
 - **Two clients:**  
   - `lib/supabase.ts` — anon key, safe for client bundle (`EXPO_PUBLIC_SUPABASE_ANON_KEY`)  
-  - `server/supabase.ts` — service role key, server only, bypasses RLS (`SUPABASE_SERVICE_ROLE_KEY`)  
+  - `server/supabase.ts` — admin key, server only, bypasses RLS (`SUPABASE_SERVICE_ROLE_KEY`). Prod uses a new-style Supabase **secret key** (`sb_secret_…`) stored as a Vercel Secret (Sensitive) for Production + Preview; the variable name is kept for compatibility (code unchanged). Locally it is the local stack's service-role demo key from `supabase status -o env`. The legacy JWT `service_role` key stays enabled until the planned phase-2 key migration (see PROJECT_STATE.md → Next Steps)  
 - **Auth:** magic link, PKCE flow, sign-ups disabled, users invited manually  
 - **Storage:** private bucket `scores`; service role used for server-side downloads; anon key used for client uploads (policy: authenticated users only)  
 - **DB:** single `scores` table, snake\_case columns, no RLS row policies (access controlled at API layer)
@@ -392,7 +392,7 @@ Schema lives in `supabase/migrations/`. Create a migration with `supabase migrat
 - **Use Drizzle ORM or `pg` directly** — removed intentionally; Supabase JS client handles all DB access  
 - **Store base64 image data in the database** — always use Supabase Storage paths  
 - **Expose `SUPABASE_SERVICE_ROLE_KEY` to the client** — it bypasses all RLS; server-side only  
-- **Reference `server/supabase.ts` from client code** — it imports the service role key  
+- **Reference `server/supabase.ts` from client code** — it imports the server-only admin (secret) key  
 - **Set `EXPO_PUBLIC_DOMAIN` with a `https://` prefix** — `getApiUrl()` adds the protocol; double prefix breaks all API calls  
 - **Run `npm run db:push`** — this script no longer exists; the command will fail  
 - **Point the local `.env` at prod casually** — local dev uses the local Supabase stack; switching to prod (`cp .env.prod-reference .env`) must be deliberate  

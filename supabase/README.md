@@ -27,7 +27,7 @@ Local dev runs against a **local Supabase stack** (Supabase CLI + Docker), not t
 | Studio | `http://127.0.0.1:54323` |
 | Mailpit (local inbox for magic-link emails) | `http://127.0.0.1:54324` |
 
-Run `supabase status -o env` to get the local `SERVICE_ROLE_KEY` and `ANON_KEY` for `.env` (well-known local demo keys, not secrets). Set `SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_URL` to `http://127.0.0.1:54321`. Prod values are kept in `.env.prod-reference` (gitignored).
+Run `supabase status -o env` to get the local `SERVICE_ROLE_KEY` and `ANON_KEY` for `.env` (well-known local demo keys, not secrets). In prod, `SUPABASE_SERVICE_ROLE_KEY` holds a Supabase secret key (`sb_secret_…`) stored as a Vercel Secret; the variable name is kept for compatibility and the key stays server-only and RLS-bypassing. Set `SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_URL` to `http://127.0.0.1:54321`. Prod values are kept in `.env.prod-reference` (gitignored).
 
 **Native devices:** iOS Simulator reaches `127.0.0.1`; Android emulator needs `10.0.2.2:54321`; a physical phone needs the Mac's LAN IP in `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_DOMAIN`.
 
@@ -67,7 +67,7 @@ Optional drift check against prod: `supabase link --project-ref <your-project-re
 ## Notes
 
 - Schema is intentionally simple — no triggers, functions, or complex policies
-- RLS is enabled on `scores` but no row-level policies are defined; access is controlled at the API layer via JWT + service role key
+- RLS is enabled on `scores` but no row-level policies are defined; access is controlled at the API layer via JWT + the server-only admin key (`SUPABASE_SERVICE_ROLE_KEY`)
 - The `objective_scores`, `players`, and `player_names` columns use JSONB for flexibility
 - Vercel preview deployments still point at the prod Supabase project; local can't serve them
 

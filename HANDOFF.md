@@ -171,6 +171,7 @@ Earlier milestones (still current): the UI redesign (expo-router tab + modal arc
 - [ ] Future: profile photo support (avatar circle already in place, shows initials — swap for `<Image>`)  
 - [ ] Future: email/password as second auth method in `components/AuthScreen.tsx`  
 - [ ] Future: per-user score filtering via RLS on `scores` table
+- [ ] Delete UX feedback — no in-progress/success feedback on delete confirm; users re-tap, causing duplicate DELETEs (seen in prod 2026-11-24; server now returns 404 for the duplicate). Add disabled button / "Deleting…" / spinner plus a success toast or optimistic removal on both the History swipe-delete modal and the Score Detail delete modal.
 
 ---
 
