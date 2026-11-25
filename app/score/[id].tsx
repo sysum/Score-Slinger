@@ -27,7 +27,8 @@ import Animated, {
   interpolate,
 } from "react-native-reanimated";
 import { useTheme } from "@/contexts/ThemeContext";
-import { apiRequest, isCapturedApiError } from "@/lib/query-client";
+import { useToast } from "@/contexts/ToastContext";
+import { apiRequest, ApiError } from "@/lib/query-client";
 import { analytics } from "@/lib/analytics";
 import { useDeleteScore } from "@/lib/use-delete-score";
 import { type ThemeColors } from "@/constants/colors";
@@ -53,6 +54,8 @@ interface Score {
 }
 
 const PLAYER_COLOR_ORDER = ["blue", "red", "yellow", "purple"];
+
+const NAME_SAVE_ERROR_MESSAGE = "Couldn't save the name — check your connection and try again.";
 
 // ─── Player card ──────────────────────────────────────────────────────────────
 
@@ -146,6 +149,7 @@ export default function ScoreDetailScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const queryClient = useQueryClient();
+  const { showToast } = useToast();
 
   const [localPlayerNames, setLocalPlayerNames] = useState<Record<string, string> | null>(null);
   const [displayName, setDisplayName] = useState("");
@@ -181,6 +185,7 @@ export default function ScoreDetailScreen() {
   }, []);
 
   const updatePlayerName = async (color: string, name: string) => {
+    const previous = playerNames[color];
     const updated = { ...playerNames, [color]: name || undefined } as Record<string, string>;
     if (!name) delete updated[color];
     setLocalPlayerNames(updated);
@@ -191,8 +196,20 @@ export default function ScoreDetailScreen() {
       queryClient.invalidateQueries({ queryKey: ["/api/scores"] });
       analytics.track("player_names_updated", { location: "detail", score_id: id, color });
     } catch (err) {
-      // Silent in the UI (the local label is kept), so report it.
-      if (!isCapturedApiError(err)) {
+      // Revert this color's label (unless it was edited again meanwhile).
+      setLocalPlayerNames((current) => {
+        if (!current || current[color] !== updated[color]) return current;
+        const reverted = { ...current };
+        if (previous) reverted[color] = previous;
+        else delete reverted[color];
+        return reverted;
+      });
+      showToast(NAME_SAVE_ERROR_MESSAGE, { type: "error" });
+      const status = err instanceof ApiError ? err.status : null;
+      analytics.track("player_names_update_failed", { location: "detail", score_id: id, status });
+      // HTTP errors are covered by api_request_failed; send the stack trace
+      // only for non-HTTP ones (network or unexpected).
+      if (status === null) {
         analytics.captureException(err, { context: "player_names_update", location: "detail", score_id: id });
       }
     }

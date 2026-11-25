@@ -295,7 +295,7 @@ app.delete("/api/scores/:id", async (c) => {
 
     const { data: existing, error: fetchError } = await supabaseAdmin
       .from("scores")
-      .select("user_id")
+      .select("user_id, image_path")
       .eq("id", id)
       .single();
 
@@ -311,6 +311,15 @@ app.delete("/api/scores/:id", async (c) => {
     if (error) throw error;
     // A concurrent DELETE (e.g. double-tap) may already have removed the row.
     if (!data || data.length === 0) return c.json({ error: "Score not found" }, 404);
+
+    // Best-effort: remove the now-orphaned image. The row is already gone, so a
+    // storage failure is logged but doesn't fail the request.
+    if (existing.image_path) {
+      const { error: removeError } = await supabaseAdmin.storage
+        .from("scores")
+        .remove([existing.image_path]);
+      if (removeError) console.error("Storage remove error:", removeError);
+    }
     return c.json({ success: true });
   } catch (error: unknown) {
     console.error("Error deleting score:", error);
