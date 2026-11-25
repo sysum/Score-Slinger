@@ -80,7 +80,7 @@ Score Slinger is a mobile \+ web app for logging scores from theme park ride gam
 
 ├── lib/
 
-│   ├── analytics.ts      \# PostHog wrapper — identify/track/screen/reset; null-safe (no-op if EXPO\_PUBLIC\_POSTHOG\_KEY not set). Full event catalog in CONTEXT.md → External Integrations → PostHog.
+│   ├── analytics.ts      \# PostHog wrapper — client options, super props, identifyUser/track/screen/captureException/setPersonProperties/reset; null-safe (no-op if EXPO\_PUBLIC\_POSTHOG\_KEY not set). Full event catalog in CONTEXT.md → External Integrations → PostHog.
 
 │   ├── query-client.ts   \# TanStack Query setup \+ apiRequest helper (throws ApiError with .status) \+ getApiUrl()
 
@@ -228,6 +228,12 @@ ALLOWED\_ORIGINS=           \# Comma-separated CORS origins for production
 EXPO\_PUBLIC\_POSTHOG\_KEY=   \# PostHog project API key — analytics disabled if not set
 
 EXPO\_PUBLIC\_POSTHOG\_HOST=  \# PostHog ingest host (default: https://us.i.posthog.com)
+
+EXPO\_PUBLIC\_POSTHOG\_DEBUG= \# "true" enables PostHog SDK debug logging
+
+\# Set by vercel.json's buildCommand from Vercel system vars (not in .env):
+
+\# EXPO\_PUBLIC\_VERCEL\_ENV, EXPO\_PUBLIC\_COMMIT\_SHA → PostHog environment / commit super props
 
 ---
 

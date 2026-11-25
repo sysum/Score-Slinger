@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -26,6 +26,11 @@ type AuthMethod = "magic_link"; // | "email_password" | "google" etc.
 export default function AuthScreen() {
   const { colors, isDark } = useTheme();
   const [activeMethod] = useState<AuthMethod>("magic_link");
+
+  // Rendered above the Stack (no pathname), so track the screen manually.
+  useEffect(() => {
+    analytics.screen("auth");
+  }, []);
 
   return (
     <KeyboardAvoidingView
