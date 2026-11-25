@@ -18,7 +18,7 @@ Score Slinger is a mobile \+ web app for logging scores from theme park ride gam
 | Backend API | Hono on Vercel (serverless functions) |
 | Database | Supabase PostgreSQL — queried directly via `@supabase/supabase-js` (no ORM) |
 | Image storage | Supabase Storage (private bucket: `scores`) |
-| AI parsing | OpenAI `gpt-4o-mini` vision |
+| AI parsing | OpenAI `gpt-4.1-mini` vision |
 | Auth | Supabase Auth — magic link, PKCE flow, invite-only |
 | Analytics | PostHog (`posthog-react-native`) — event tracking, web \+ native |
 

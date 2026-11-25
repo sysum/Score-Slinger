@@ -30,7 +30,7 @@ Built for **Marvel's Web Slingers: A Spider-Man Adventure** at Disney California
 - **Database:** Supabase PostgreSQL via `@supabase/supabase-js` (no ORM)
 - **Image storage:** Supabase Storage (private bucket)
 - **Auth:** Supabase Auth — magic link, PKCE flow, invite-only
-- **AI:** OpenAI `gpt-4o-mini` vision API
+- **AI:** OpenAI `gpt-4.1-mini` vision API
 - **Analytics:** PostHog (`posthog-react-native`) — optional, disabled if key not set
 
 ---

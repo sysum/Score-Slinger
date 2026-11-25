@@ -22,7 +22,7 @@ Score Slinger is a mobile \+ web app for logging scores from Marvel's Web Slinge
 | Backend | Hono on Vercel serverless (`/api/*`) |
 | Database | Supabase PostgreSQL (no ORM — raw `@supabase/supabase-js`) |
 | Image storage | Supabase Storage, private bucket `scores` |
-| AI | OpenAI `gpt-4o-mini` vision |
+| AI | OpenAI `gpt-4.1-mini` vision |
 | Auth | Supabase magic link, PKCE, invite-only |
 | Analytics | PostHog (optional — disabled if `EXPO_PUBLIC_POSTHOG_KEY` not set) |
 

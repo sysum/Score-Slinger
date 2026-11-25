@@ -5,6 +5,7 @@ import type { User } from "@supabase/supabase-js";
 import OpenAI from "openai";
 import exifParser from "exif-parser";
 import { supabaseAdmin } from "./supabase";
+import { buildParseRequest, checkParsedScore, extractParsedJson } from "./parsePrompt";
 import type { Score } from "../shared/schema";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -103,83 +104,24 @@ app.post("/api/parse-score", async (c) => {
       console.log("EXIF extraction failed (non-critical):", exifErr);
     }
 
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content: `You are a scoreboard parser for a theme park ride game (like Marvel's Web Slingers or similar). You MUST extract numbers from the image and return valid JSON. Never refuse to parse — always do your best to read the numbers.
-
-The scoreboard layout is:
-- CENTER TOP: Above the large team score number, there is a text label. It may say "TEAM SCORE" or it may show an achievement like "BEST THIS HOUR", "2ND THIS HOUR", "3RD THIS HOUR", etc. This is the achievement field.
-- CENTER: A large team score (the biggest number on screen, e.g. 881,900). This is the teamScore.
-- CENTER BOTTOM: Three objective scores labeled "FIGHT GIANT BOT" (left), "RESCUE SPIDER-MAN" (middle), "DESTROY GIANT BOT" (right), each with a number below.
-- LEFT SIDE: Two player score panels stacked vertically. The top-left panel is BLUE, the bottom-left panel is YELLOW. Each shows a score number.
-- RIGHT SIDE: Two player score panels stacked vertically. The top-right panel is RED, the bottom-right panel is PURPLE. Each shows a score number.
-
-Return ONLY valid JSON with this exact structure:
-{
-  "teamScore": <number>,
-  "achievement": "<text above the team score, or null if it just says 'TEAM SCORE'>",
-  "objectiveScores": {
-    "fightGiantBot": <number>,
-    "rescueSpiderMan": <number>,
-    "destroyGiantBot": <number>
-  },
-  "gameName": "<detected game name or 'Unknown'>",
-  "players": [
-    {
-      "name": "<player name or identifier>",
-      "score": <number>,
-      "color": "<one of: blue, red, yellow, purple>"
-    }
-  ]
-}
-
-Rules:
-- There are exactly 4 players: blue (top-left), yellow (bottom-left), red (top-right), purple (bottom-right)
-- Read the score number from each colored panel
-- The teamScore is the largest number displayed in the center of the screen
-- Read the text label ABOVE the team score. If it says "TEAM SCORE", set achievement to null. If it says anything else (like "BEST THIS HOUR", "2ND THIS HOUR", "3RD THIS HOUR"), set achievement to that text exactly as shown
-- Read the three objective scores from below the team score
-- Numbers may have commas (e.g. 881,900). Remove commas and return as integers
-- The game is likely "Web Slingers: A Spider-Man Adventure" or similar
-- ALWAYS return the JSON with your best reading of the numbers. Never return an error if you can see any numbers at all
-- Return ONLY the JSON, no markdown, no explanation, no code fences`,
-        },
-        {
-          role: "user",
-          content: [
-            {
-              type: "image_url",
-              image_url: {
-                url: `data:${mimeType};base64,${base64Image}`,
-              },
-            },
-            {
-              type: "text",
-              text: "Parse this theme park ride game scoreboard. Extract the large team score in the center, the three objective scores (Fight Giant Bot, Rescue Spider-Man, Destroy Giant Bot) below it, and the four player scores from the colored panels (blue top-left, yellow bottom-left, red top-right, purple bottom-right).",
-            },
-          ],
-        },
-      ],
-      max_completion_tokens: 1024,
-    });
+    const response = await openai.chat.completions.create(
+      buildParseRequest(`data:${mimeType};base64,${base64Image}`),
+    );
 
     const content = response.choices[0]?.message?.content || "";
     console.log("AI response content:", content);
 
     let parsed: Record<string, unknown>;
-    try {
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        parsed = JSON.parse(jsonMatch[0]);
-      } else {
-        console.error("No JSON found in AI response");
-        parsed = { error: "Could not parse scores from this image" };
+    const extracted = extractParsedJson(content);
+    if (extracted) {
+      parsed = extracted;
+      const problems = checkParsedScore(parsed);
+      if (problems.length > 0) {
+        console.warn("Parsed score failed sanity checks:", problems, "Parsed:", JSON.stringify(parsed));
+        parsed.warning = problems.join("; ");
       }
-    } catch (parseErr) {
-      console.error("JSON parse error:", parseErr, "Content:", content);
+    } else {
+      console.error("No valid JSON found in AI response. Content:", content);
       parsed = { error: "Could not parse scores from this image" };
     }
 

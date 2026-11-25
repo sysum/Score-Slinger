@@ -6,19 +6,27 @@ Last updated: 2026-11-24
 
 ## Current Goal
 
-No major initiative in flight. The app is healthy and in production; the dependency refresh, analytics build-out, tsc/lint cleanup, and new app logo have all shipped to `main`. Remaining work is backlog/maintenance (see Next Steps).
+No major initiative in flight. The app is healthy and in production; the dependency refresh, analytics build-out, tsc/lint cleanup, new app logo, and local Supabase dev stack have all shipped to `main`. Remaining work is backlog/maintenance (see Next Steps).
 
 ---
 
 ## In Progress
 
-Local Supabase workflow is on branch `feat/local-supabase` (not yet merged). `main` is clean and deployed.
+### Parse prompt: colors by panel, not position (branch `fix/parse-colors-by-panel`, 2026-11-24)
+
+**Bug:** the `/api/parse-score` prompt hard-coded player colors by panel position (blue top-left, yellow bottom-left, red top-right, purple bottom-right). The physical layout varies by ride vehicle — 3 of the 5 prod boards (Aug 25 2025, Sep 29 2025, Oct 27 2026) are yellow TL / blue BL / purple TR / red BR — so the model read the numbers right but swapped colors within a column. On those boards the top panel of each column has **white** digits, so color must come from the panel background/frame.
+
+**Fix:** prompt moved to `server/parsePrompt.ts` (system prompt, user text, model, `buildParseRequest`, `extractParsedJson`, `checkParsedScore`) so offline validation can exercise the exact production request. Prompt now derives color only from each panel's background/digit color and says positions vary; each player gets a `position` field (traceability, stored in `players` JSONB; `Score.players[].position?` is optional). JSON mode (`response_format: json_object`) on, regex extraction kept as fallback. Post-parse sanity checks (4 players, colors exactly {blue,yellow,red,purple}; players + 3 objectives === teamScore) `console.warn` and add a `warning` string to the response — they never block the save. **Note:** a within-column color swap passes both sanity checks (same set of colors, same sum), so they can't catch this specific bug — only the prompt fix does.
+
+**Validation (live OpenAI, 5 prod images, ground truth checked by eye + sum):** old prompt on Oct 27 → red/purple swapped in 3/3 runs (reproduces the bug). New prompt + `gpt-4o-mini` → colors 25/25 correct, but Aug 25's glare-washed "Rescue Spider-Man" 37,000 misread as 70,000/77,000/70,700 in 5/5 runs (the sum check flagged every one). New prompt + `gpt-4.1-mini` → 25/25 exact on every field; `gpt-4o` → 5/5 exact on Aug 25. **Switched production model to `gpt-4.1-mini`** — most accurate and cheapest per photo (~6k input tokens vs ~26k for 4o-mini, which bills images at a high token multiplier).
+
+**Status:** code complete, validated, tsc/lint clean; in review as PR #10. Prod rows Aug 25, Sep 29 and Oct 27 have been corrected by hand.
 
 ---
 
 ## Recently Completed (shipped to `main`)
 
-### Local Supabase dev workflow (branch `feat/local-supabase`, 2026-11-24)
+### Local Supabase dev workflow (PR #9, merged 2026-11-24)
 
 Local dev now runs against a local Supabase stack (Supabase CLI 2.117.0 + Docker) instead of the prod project. Before, the local `.env` pointed at prod, so local testing wrote real prod data. New scripts: `npm run db:start` / `db:stop` / `db:reset` / `db:status` (`db:start` is not chained into `npm run dev` — cold start ~30s). Local endpoints: API `127.0.0.1:54321`, Postgres `54322`, Studio `54323`, Mailpit `54324` (magic-link inbox). `supabase/config.toml` sets invite-only auth (`enable_signup = false`, site_url `http://localhost:8081`, redirects `http://localhost:8081/**` + `scoreslinger://**`); `supabase/seed.sql` creates confirmed test user `dev@local.test` plus 2 fake scores. Prod env values moved to gitignored `.env.prod-reference` (deliberately not an Expo-recognised name, so `expo export` can't bake prod into a local build); `.env` holds local values.
 
