@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -149,7 +149,6 @@ export default function ScoreDetailScreen() {
   const [localPlayerNames, setLocalPlayerNames] = useState<Record<string, string> | null>(null);
   const [displayName, setDisplayName] = useState("");
   const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const deleteInFlight = useRef(false);
 
   const { data: scores = [] } = useQuery<Score[]>({ queryKey: ["/api/scores"] });
   const score = scores.find((s) => s.id === id);
@@ -188,9 +187,6 @@ export default function ScoreDetailScreen() {
   };
 
   const handleDelete = async () => {
-    // Ref guard: a fast double-tap can fire twice before the modal unmounts.
-    if (deleteInFlight.current) return;
-    deleteInFlight.current = true;
     setShowDeleteModal(false);
     try {
       await apiRequest("DELETE", `/api/scores/${id}`);
