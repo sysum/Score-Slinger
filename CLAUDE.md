@@ -90,7 +90,7 @@ Score Slinger is a mobile \+ web app for logging scores from theme park ride gam
 
 ├── server/
 
-│   ├── app.ts            \# Hono app — all 6 API routes \+ CORS \+ requireAuth middleware
+│   ├── app.ts            \# Hono app — all 7 API routes \+ CORS \+ requireAuth middleware
 
 │   ├── index.ts          \# Local dev entry point (@hono/node-server, port 5055\)
 
@@ -126,6 +126,7 @@ All routes require `Authorization: Bearer <supabase_jwt>` — protected by `requ
 | GET | `/api/scores` | Returns all scores ordered by `createdAt` DESC |
 | POST | `/api/scores` | Saves a parsed score (with `imagePath`, not base64) |
 | PATCH | `/api/scores/:id/player-names` | Updates custom player name labels |
+| PATCH | `/api/scores/:id/played-date` | Updates the played date — `{ playedDate }`, stored as an ISO string; 400 if unparseable; owner only (403 otherwise, 404 if missing) |
 | GET | `/api/scores/:id/image-url` | Generates a 60-second signed URL for a score's private image |
 | DELETE | `/api/scores/:id` | Deletes a score record |
 

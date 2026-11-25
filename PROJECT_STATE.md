@@ -32,7 +32,7 @@ No major initiative in flight. The app is healthy and in production; the depende
 
 ## Recently Completed (shipped to `main`)
 
-### Delete confirmation feedback (branch `feat/delete-feedback`, 2026-11-24 — pushed, PR not yet opened)
+### Delete confirmation feedback (PR #13, merged 2026-11-24)
 
 **Problem:** confirming a delete gave no feedback, so users tapped Confirm again and sent duplicate DELETEs (seen in prod; the server already 404s the duplicate). Score Detail also closed the modal and navigated back regardless of outcome.
 
@@ -41,6 +41,14 @@ No major initiative in flight. The app is healthy and in production; the depende
 **Toast:** `contexts/ToastContext.tsx` (`ToastProvider` + `useToast().showToast(message, { type?: "success" | "error" })`) + `components/Toast.tsx`, mounted in `app/_layout.tsx` above the Stack so it survives navigation. Reanimated fade/slide, auto-dismiss after 2.5s, one at a time, bottom-anchored above the TabBar (60px + safe-area inset), theme colors, `pointerEvents: "none"`, `accessibilityRole="alert"` + live region (plus `announceForAccessibility` on iOS). On iOS it renders inside `react-native-screens`' `FullWindowOverlay` so it shows above native modals. No new dependency.
 
 **Verified:** tsc 0 errors, lint 0 problems; web dev bundle compiles; local API DELETE on the same score returned 200 then 404. Not yet clicked through by hand — see the manual checklist in the PR/hand-off.
+
+### Persist edited played date (branch `fix/persist-played-date`, 2026-11-24 — in review)
+
+**Bug (data loss):** `app/upload.tsx` auto-saves the score (`POST /api/scores`) right after a successful parse, then the result screen lets the user edit the played date. `saveDateEdit` only updated local state and fired `played_date_changed` — nothing reached the server and there was no route to update `played_date`, so **every edited played date was silently lost**.
+
+**Fix:** new `PATCH /api/scores/:id/played-date` (`{ playedDate }`): 400 `Invalid playedDate` if missing/unparseable; stored normalized via `toISOString()` (column is TEXT holding ISO strings); ownership mirrors DELETE (fetch `user_id` → 404 missing, 403 not the uploader); update uses `.select()` without `.single()` and treats 0 rows as 404 (same race-safe pattern as the DELETE fix). Client: when `savedId` exists, `saveDateEdit` PATCHes the date — Save shows a spinner + "Saving…", both buttons and the overlay are disabled, and a `useRef` guard blocks re-entry (pattern mirrors the `feat/delete-feedback` delete hook). Success → update local state, close modal, invalidate `["/api/scores"]`. Failure → modal stays open with inline error "Couldn't save the date — check your connection and try again.", previous date kept, buttons re-enabled. If `savedId` is null (auto-save failed) the edit stays local-only as before. Analytics: `played_date_changed` now carries `{ location: "upload", score_id }`; new `played_date_change_failed { location, score_id, error }`. `score_id` (snake_case) is the agreed prop convention going forward.
+
+**Verified (local Supabase):** PATCH → 200 and `GET /api/scores` shows the normalized ISO value; invalid/missing/non-string date → 400; unknown id (UUID and non-UUID) → 404; no token → 401; second local user PATCHing dev's score → 403 and the value is unchanged. tsc 0 errors, `expo lint` clean, web bundle compiles.
 
 ### Supabase API key migration (2026-11-24)
 

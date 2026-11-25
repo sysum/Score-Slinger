@@ -219,6 +219,43 @@ app.patch("/api/scores/:id/player-names", async (c) => {
   }
 });
 
+// Only the uploader may change a score's played date (mirrors DELETE's ownership check).
+app.patch("/api/scores/:id/played-date", async (c) => {
+  try {
+    const id = c.req.param("id");
+    const user = c.get("user");
+    const { playedDate } = await c.req.json().catch(() => ({}));
+
+    const parsed = typeof playedDate === "string" ? new Date(playedDate) : null;
+    if (!parsed || isNaN(parsed.getTime())) {
+      return c.json({ error: "Invalid playedDate" }, 400);
+    }
+
+    const { data: existing, error: fetchError } = await supabaseAdmin
+      .from("scores")
+      .select("user_id")
+      .eq("id", id)
+      .single();
+
+    if (fetchError || !existing) return c.json({ error: "Score not found" }, 404);
+    if (existing.user_id !== user.id) return c.json({ error: "Forbidden" }, 403);
+
+    const { data, error } = await supabaseAdmin
+      .from("scores")
+      .update({ played_date: parsed.toISOString() })
+      .eq("id", id)
+      .select();
+
+    if (error) throw error;
+    // The row may have been deleted between the ownership check and the update.
+    if (!data || data.length === 0) return c.json({ error: "Score not found" }, 404);
+    return c.json(toScore(data[0]));
+  } catch (error: unknown) {
+    console.error("Error updating played date:", error);
+    return c.json({ error: "Failed to update played date" }, 500);
+  }
+});
+
 app.get("/api/scores/:id/image-url", async (c) => {
   try {
     const id = c.req.param("id");

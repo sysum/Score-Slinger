@@ -73,6 +73,8 @@ interface Score {
 
 const PLAYER_COLOR_ORDER = ["blue", "red", "yellow", "purple"];
 
+const DATE_SAVE_ERROR_MESSAGE = "Couldn't save the date — check your connection and try again.";
+
 // ─── Player card ──────────────────────────────────────────────────────────────
 
 function PlayerCard({
@@ -174,6 +176,10 @@ export default function UploadScreen() {
   const [editDate, setEditDate] = useState(() => new Date(photoDate ?? Date.now()));
   const [webDateStr, setWebDateStr] = useState("");
   const [webTimeStr, setWebTimeStr] = useState("");
+  const [savingDate, setSavingDate] = useState(false);
+  const [dateError, setDateError] = useState<string | null>(null);
+  // Ref guard: state updates are async, so a double-tap could otherwise send two PATCHes.
+  const savingDateRef = useRef(false);
   const [showDuplicateWarning, setShowDuplicateWarning] = useState(false);
   const displayNameRef = useRef<string>("");
 
@@ -335,10 +341,18 @@ export default function UploadScreen() {
     setEditDate(d);
     setWebDateStr(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`);
     setWebTimeStr(`${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`);
+    setDateError(null);
     setEditingDate(true);
   };
 
-  const saveDateEdit = () => {
+  const closeDateEditor = () => {
+    if (savingDateRef.current) return;
+    setDateError(null);
+    setEditingDate(false);
+  };
+
+  const saveDateEdit = async () => {
+    if (savingDateRef.current) return;
     let finalDate = new Date(editDate);
     if (Platform.OS === "web") {
       const digits = webDateStr.replace(/\D/g, "");
@@ -350,9 +364,36 @@ export default function UploadScreen() {
         finalDate.setHours(parseInt(tDigits.slice(0, 2)), parseInt(tDigits.slice(2, 4)));
       }
     }
-    setPlayedDate(finalDate.toISOString());
+    const iso = finalDate.toISOString();
+
+    // Score already auto-saved: persist the edit. The modal stays open (spinner)
+    // until the request settles; on failure it shows an inline error and the
+    // previous date is kept so the user can retry or cancel.
+    if (savedId) {
+      savingDateRef.current = true;
+      setSavingDate(true);
+      setDateError(null);
+      try {
+        await apiRequest("PATCH", `/api/scores/${savedId}/played-date`, { playedDate: iso });
+      } catch (err) {
+        analytics.track("played_date_change_failed", {
+          location: "upload",
+          score_id: savedId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        setDateError(DATE_SAVE_ERROR_MESSAGE);
+        return;
+      } finally {
+        savingDateRef.current = false;
+        setSavingDate(false);
+      }
+      queryClient.invalidateQueries({ queryKey: ["/api/scores"] });
+    }
+
+    // No savedId means the auto-save failed; the edit stays local-only.
+    setPlayedDate(iso);
     setEditingDate(false);
-    analytics.track("played_date_changed");
+    analytics.track("played_date_changed", { location: "upload", score_id: savedId });
   };
 
   const formatDate = (iso: string) => {
@@ -547,8 +588,8 @@ export default function UploadScreen() {
       )}
 
       {/* Date editor modal */}
-      <Modal visible={editingDate} transparent animationType="fade">
-        <Pressable style={styles.modalOverlay} onPress={() => setEditingDate(false)}>
+      <Modal visible={editingDate} transparent animationType="fade" onRequestClose={closeDateEditor}>
+        <Pressable style={styles.modalOverlay} onPress={closeDateEditor} disabled={savingDate}>
           <Pressable style={[styles.modalBox, { backgroundColor: colors.surface, borderColor: colors.cardBorder }]} onPress={(e) => e.stopPropagation()}>
             <Text style={[styles.modalTitle, { color: colors.text }]}>Edit Played Date</Text>
 
@@ -596,12 +637,39 @@ export default function UploadScreen() {
               </View>
             )}
 
+            {dateError ? (
+              <View style={styles.modalError} accessibilityRole="alert" accessibilityLiveRegion="polite">
+                <Ionicons name="alert-circle" size={16} color={colors.danger} />
+                <Text style={[styles.modalErrorText, { color: colors.danger }]}>{dateError}</Text>
+              </View>
+            ) : null}
+
             <View style={styles.modalBtns}>
-              <Pressable onPress={() => setEditingDate(false)} style={({ pressed }) => [styles.modalCancelBtn, { backgroundColor: colors.surfaceLight }, pressed && { opacity: 0.7 }]}>
+              <Pressable
+                onPress={closeDateEditor}
+                disabled={savingDate}
+                style={({ pressed }) => [
+                  styles.modalCancelBtn,
+                  { backgroundColor: colors.surfaceLight },
+                  pressed && { opacity: 0.7 },
+                  savingDate && { opacity: 0.5 },
+                ]}
+              >
                 <Text style={[styles.modalCancelText, { color: colors.textSecondary }]}>Cancel</Text>
               </Pressable>
-              <Pressable onPress={saveDateEdit} style={({ pressed }) => [styles.modalConfirmBtn, { backgroundColor: colors.accent }, pressed && { opacity: 0.7 }]}>
-                <Text style={[styles.modalConfirmText, { color: colors.background }]}>Save</Text>
+              <Pressable
+                onPress={saveDateEdit}
+                disabled={savingDate}
+                accessibilityState={{ busy: savingDate, disabled: savingDate }}
+                style={({ pressed }) => [
+                  styles.modalConfirmBtn,
+                  { backgroundColor: colors.accent },
+                  pressed && { opacity: 0.7 },
+                  savingDate && { opacity: 0.8 },
+                ]}
+              >
+                {savingDate ? <ActivityIndicator size="small" color={colors.background} /> : null}
+                <Text style={[styles.modalConfirmText, { color: colors.background }]}>{savingDate ? "Saving…" : "Save"}</Text>
               </Pressable>
             </View>
           </Pressable>
@@ -897,8 +965,21 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 44,
     borderRadius: 10,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+    gap: 8,
+  },
+  modalError: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 6,
+  },
+  modalErrorText: {
+    flex: 1,
+    fontSize: 13,
+    fontFamily: "DMSans_500Medium",
+    lineHeight: 18,
   },
   modalConfirmText: {
     fontSize: 15,
