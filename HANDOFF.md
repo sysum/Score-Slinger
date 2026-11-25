@@ -83,6 +83,10 @@ server/app.ts            All 6 API routes \+ CORS \+ requireAuth middleware
 
 lib/analytics.ts         PostHog wrapper (no-op if key not set)
 
+lib/use-delete-score.ts  Shared delete flow (guard, optimistic cache, 404-as-success, toast, analytics)
+
+contexts/ToastContext.tsx App-level toast — ToastProvider + useToast().showToast(message, { type })
+
 lib/query-client.ts      TanStack Query setup \+ apiRequest helper \+ getApiUrl()
 
 lib/supabase.ts          Client Supabase instance (PKCE, AsyncStorage)
@@ -149,6 +153,7 @@ All require `Authorization: Bearer <supabase_jwt>`.
 
 ## What Was Just Done (as of 2026-11-24)
 
+- **Delete confirmation feedback** (branch `feat/delete-feedback`, 2026-11-24, PR not yet opened) — both delete modals (History swipe-delete and Score Detail) now show a spinner + "Deleting…", disable Cancel/overlay while the request runs (with a `useRef` guard against double-taps), and stay open until it finishes. Success closes the modal and shows a "Score deleted" toast (History removes the card optimistically; Detail goes back, and the toast stays visible on History). Failure keeps the modal open with an inline error and lets the user retry (History rolls back the removal). A 404 counts as success. Shared logic is in `lib/use-delete-score.ts`; the new app-level toast is `contexts/ToastContext.tsx` + `components/Toast.tsx`, mounted in `app/_layout.tsx`. `apiRequest` now throws `ApiError` (has `.status`). Analytics: `score_deleted` gets `already_deleted: true` on the 404 path; new `score_delete_failed`.  
 0. **Supabase API key migration** (2026-11-24) — prod is fully off the legacy JWT keys. Server: Vercel `SUPABASE_SERVICE_ROLE_KEY` = new secret key (`sb_secret_…`, Vercel Secret, Production + Preview). Client: `EXPO_PUBLIC_SUPABASE_ANON_KEY` = publishable key (`sb_publishable_…`, normal var, Production + Preview; name kept for compatibility, `lib/supabase.ts` unchanged; no-cache redeploy). Legacy `anon` + `service_role` keys are **disabled** (reversible in Supabase → Settings → API Keys). Verified: live bundle ships only the publishable key, legacy anon key returns 401, real prod upload works end to end, existing sessions unaffected. Readable Development-only Vercel vars deleted; `.env.prod-reference` holds the prod keys.  
 1. **Local Supabase dev workflow** (branch `feat/local-supabase`, 2026-11-24) — local dev now uses a local Supabase stack (CLI 2.117.0 + Docker) instead of prod, so local testing no longer writes real prod data. Scripts `npm run db:start/stop/reset/status`; schema in `supabase/migrations/` (mirrors prod; fixed drift in the old `01_`/`02_` SQL files, which were removed); seed user `dev@local.test` + 2 fake scores; prod env in `.env.prod-reference`. Chose local over a cloud non-prod project because Pro-plan projects each bill compute (~$10/mo). See `supabase/README.md`.  
 2. **App logo** (PR #7, merged) — new logo wired into app icon, favicon, splash, and Android adaptive icon; regenerated full-bleed (light artboard bg → navy `#01051D`) so the OS mask renders cleanly. Master source at `assets/images/score-slinger.png`. Baked at build time — verify on a native/EAS build.  
@@ -172,7 +177,7 @@ Earlier milestones (still current): the UI redesign (expo-router tab + modal arc
 - [ ] Future: profile photo support (avatar circle already in place, shows initials — swap for `<Image>`)  
 - [ ] Future: email/password as second auth method in `components/AuthScreen.tsx`  
 - [ ] Future: per-user score filtering via RLS on `scores` table
-- [ ] Delete UX feedback — no in-progress/success feedback on delete confirm; users re-tap, causing duplicate DELETEs (seen in prod 2026-11-24; server now returns 404 for the duplicate). Add disabled button / "Deleting…" / spinner plus a success toast or optimistic removal on both the History swipe-delete modal and the Score Detail delete modal.
+- [x] Delete UX feedback — done on branch `feat/delete-feedback` (pushed, PR not yet opened); needs a manual click-through on web + native before merge
 
 ---
 

@@ -18,10 +18,25 @@ export function getApiUrl(): string {
   return `${isLocal ? "http" : "https"}://${host}`;
 }
 
+/**
+ * Thrown by apiRequest()/getQueryFn() for non-2xx responses. The message keeps
+ * the original "<status>: <body>" format; `status` lets callers branch on it
+ * (e.g. treat a 404 from DELETE as "already deleted").
+ */
+export class ApiError extends Error {
+  status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
-    throw new Error(`${res.status}: ${text}`);
+    throw new ApiError(res.status, `${res.status}: ${text}`);
   }
 }
 

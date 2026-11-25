@@ -64,7 +64,9 @@ Score Slinger is a mobile \+ web app for logging scores from theme park ride gam
 
 │   ├── AuthScreen.tsx    \# Magic link sign-in screen (extensible for future methods)
 
-│   └── TabBar.tsx        \# Custom tab bar — History | FAB | Profile; action sheet for camera/library
+│   ├── TabBar.tsx        \# Custom tab bar — History | FAB | Profile; action sheet for camera/library
+
+│   └── Toast.tsx         \# Toast view rendered by ToastProvider (Reanimated, above TabBar, FullWindowOverlay on iOS)
 
 ├── constants/
 
@@ -72,13 +74,17 @@ Score Slinger is a mobile \+ web app for logging scores from theme park ride gam
 
 ├── contexts/
 
-│   └── ThemeContext.tsx  \# App theme (dark/light) context
+│   ├── ThemeContext.tsx  \# App theme (dark/light) context
+
+│   └── ToastContext.tsx  \# App-level toast — ToastProvider (mounted in app/\_layout.tsx) \+ useToast().showToast(message, { type })
 
 ├── lib/
 
 │   ├── analytics.ts      \# PostHog wrapper — identify/track/screen/reset; null-safe (no-op if EXPO\_PUBLIC\_POSTHOG\_KEY not set). Full event catalog in CONTEXT.md → External Integrations → PostHog.
 
-│   ├── query-client.ts   \# TanStack Query setup \+ apiRequest helper \+ getApiUrl()
+│   ├── query-client.ts   \# TanStack Query setup \+ apiRequest helper (throws ApiError with .status) \+ getApiUrl()
+
+│   ├── use-delete-score.ts \# Shared delete flow for History + Score Detail modals (guard, optimistic cache, 404-as-success, toast)
 
 │   └── supabase.ts       \# Client-side Supabase instance (publishable key in prod / anon demo key locally, PKCE, AsyncStorage)
 

@@ -25,8 +25,8 @@ import { useRouter } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useTheme } from "@/contexts/ThemeContext";
-import { apiRequest } from "@/lib/query-client";
 import { analytics } from "@/lib/analytics";
+import { useDeleteScore } from "@/lib/use-delete-score";
 import { type ThemeColors } from "@/constants/colors";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -286,6 +286,12 @@ export default function HistoryScreen() {
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [displayName, setDisplayName] = useState("");
+  const {
+    deleteScore,
+    isDeleting,
+    error: deleteError,
+    clearError: clearDeleteError,
+  } = useDeleteScore("history");
 
   useEffect(() => {
     AsyncStorage.getItem("display_name").then((name) => {
@@ -309,16 +315,17 @@ export default function HistoryScreen() {
 
   const confirmDelete = async () => {
     if (!pendingDeleteId) return;
-    try {
-      await apiRequest("DELETE", `/api/scores/${pendingDeleteId}`);
-      queryClient.invalidateQueries({ queryKey: ["/api/scores"] });
-      analytics.track("score_deleted", { source: "history", scoreId: pendingDeleteId });
-    } catch {}
-    setPendingDeleteId(null);
+    // Optimistic: the card disappears immediately; rolled back if the request fails.
+    // The modal stays open (spinner) until the request settles; on failure it
+    // stays open with an inline error so the user can retry or cancel.
+    const deleted = await deleteScore(pendingDeleteId, { optimistic: true });
+    if (deleted) setPendingDeleteId(null);
   };
 
   const cancelDelete = () => {
+    if (isDeleting) return;
     analytics.track("score_delete_canceled", { source: "history" });
+    clearDeleteError();
     setPendingDeleteId(null);
   };
 
@@ -395,8 +402,8 @@ export default function HistoryScreen() {
       )}
 
       {/* Delete confirm modal */}
-      <Modal visible={!!pendingDeleteId} transparent animationType="fade">
-        <Pressable style={styles.modalOverlay} onPress={cancelDelete}>
+      <Modal visible={!!pendingDeleteId} transparent animationType="fade" onRequestClose={cancelDelete}>
+        <Pressable style={styles.modalOverlay} onPress={cancelDelete} disabled={isDeleting}>
           <Pressable
             style={[styles.modalBox, { backgroundColor: colors.surface, borderColor: colors.cardBorder }]}
             onPress={(e) => e.stopPropagation()}
@@ -405,18 +412,38 @@ export default function HistoryScreen() {
             <Text style={[styles.modalBody, { color: colors.textSecondary }]}>
               Are you sure you want to delete this entry? This cannot be undone.
             </Text>
+            {deleteError ? (
+              <View style={styles.modalError} accessibilityRole="alert" accessibilityLiveRegion="polite">
+                <Ionicons name="alert-circle" size={16} color={colors.danger} />
+                <Text style={[styles.modalErrorText, { color: colors.danger }]}>{deleteError}</Text>
+              </View>
+            ) : null}
             <View style={styles.modalBtns}>
               <Pressable
                 onPress={cancelDelete}
-                style={({ pressed }) => [styles.modalCancelBtn, { backgroundColor: colors.surfaceLight }, pressed && { opacity: 0.7 }]}
+                disabled={isDeleting}
+                style={({ pressed }) => [
+                  styles.modalCancelBtn,
+                  { backgroundColor: colors.surfaceLight },
+                  pressed && { opacity: 0.7 },
+                  isDeleting && { opacity: 0.5 },
+                ]}
               >
                 <Text style={[styles.modalCancelText, { color: colors.textSecondary }]}>Cancel</Text>
               </Pressable>
               <Pressable
                 onPress={confirmDelete}
-                style={({ pressed }) => [styles.modalDeleteBtn, { backgroundColor: colors.danger }, pressed && { opacity: 0.7 }]}
+                disabled={isDeleting}
+                accessibilityState={{ busy: isDeleting, disabled: isDeleting }}
+                style={({ pressed }) => [
+                  styles.modalDeleteBtn,
+                  { backgroundColor: colors.danger },
+                  pressed && { opacity: 0.7 },
+                  isDeleting && { opacity: 0.8 },
+                ]}
               >
-                <Text style={styles.modalDeleteText}>Delete</Text>
+                {isDeleting ? <ActivityIndicator size="small" color="#fff" /> : null}
+                <Text style={styles.modalDeleteText}>{isDeleting ? "Deleting…" : "Delete"}</Text>
               </Pressable>
             </View>
           </Pressable>
@@ -656,8 +683,21 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 44,
     borderRadius: 10,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+    gap: 8,
+  },
+  modalError: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 6,
+  },
+  modalErrorText: {
+    flex: 1,
+    fontSize: 13,
+    fontFamily: "DMSans_500Medium",
+    lineHeight: 18,
   },
   modalDeleteText: {
     fontSize: 15,
