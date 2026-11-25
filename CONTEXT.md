@@ -359,7 +359,7 @@ SDK / automatic events (not from `track()`):
 
 ### Observability (Sentry)
 
-Plan and phases: `docs/SENTRY_PLAN.md`. **Phase 1 (server) is live; Phase 2 (client SDK) and Phase 3 (source maps, see Vercel above) are implemented**; optional replay (Phase 4) needs a decision.
+Plan and phases: `docs/SENTRY_PLAN.md`. **Phases 1–3 are live and verified in production (2026-11-25):** server logs/traces/errors reach `score-slinger-api`; a client test error reached `score-slinger-web` with user (id + display name, no email), environment, release and symbolicated frames; the Vercel build log shows "Uploaded bundles and sourcemaps to Sentry successfully" and no `.map` is served. Optional replay (Phase 4) needs a decision. Org `team-beam`; the Sentry CLI (`~/.local/bin/sentry`, authenticated) can query issues/logs/traces — note `sentry issue list` caches results, pass `-f` to refresh.
 
 - **Split:** PostHog = product analytics (client, what users do; the client `*_failed` events stay, now with `request_id`). Sentry = engineering telemetry (errors, traces, structured logs) in two projects: `score-slinger-api` (server) and `score-slinger-web` (client). Since Phase 2, **every exception goes to Sentry only**: PostHog exception autocapture is off and `analytics.captureException` no longer exists.
 - **Why:** Vercel Hobby keeps runtime logs for 1 hour. Sentry keeps the per-request access log, parse results and errors for its retention window, on the $0 free plan.
