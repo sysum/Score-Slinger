@@ -36,6 +36,10 @@ Score Slinger is a mobile \+ web app for logging scores from Marvel's Web Slinge
 
 rm \-rf node\_modules && npm ci
 
+\# Start the local Supabase stack first (Docker Desktop must be running; ~30s cold start)
+
+npm run db:start   \# also: db:stop, db:status, db:reset (wipes local data, re-applies migrations \+ seed)
+
 \# Runs the API server + Expo dev server together (concurrently)
 
 npm run dev
@@ -51,9 +55,11 @@ npm run server:dev
 npm run expo:dev
 
 - `http://localhost:5055/` → 404 (expected — only `/api/*` routes exist; port is 5055, not 5000 — AirPlay binds 5000)  
-- `http://localhost:8081/` → Expo web app
+- `http://localhost:8081/` → Expo web app  
+- Local Supabase: API `http://127.0.0.1:54321`, Studio `http://127.0.0.1:54323`, Mailpit `http://127.0.0.1:54324`  
+- Sign in as **`dev@local.test`** (seeded) — request a magic link, open it from Mailpit
 
-**`.env` required** — copy `.env.example` and fill in values from Vercel/Supabase dashboards. For `EXPO_PUBLIC_POSTHOG_KEY`, use the **Non-Prod** PostHog project's key locally (and for preview deploys) — only production should point at the prod PostHog project. This keeps dev events out of production analytics while still letting you verify tracking works.
+**`.env` required** — copy `.env.example`. The Supabase values point at the **local stack** (`http://127.0.0.1:54321`; service role + anon keys from `supabase status -o env` — well-known local demo keys). Prod values are kept in `.env.prod-reference` (gitignored); switching to prod is a deliberate `cp .env.prod-reference .env`. `OPENAI_API_KEY` comes from the OpenAI dashboard. For `EXPO_PUBLIC_POSTHOG_KEY`, use the **Non-Prod** PostHog project's key locally (and for preview deploys) — only production should point at the prod PostHog project. This keeps dev events out of production analytics while still letting you verify tracking works.
 
 ---
 
@@ -141,8 +147,9 @@ All require `Authorization: Bearer <supabase_jwt>`.
 
 ---
 
-## What Was Just Done (as of 2026-07-23)
+## What Was Just Done (as of 2026-11-24)
 
+0. **Local Supabase dev workflow** (branch `feat/local-supabase`, 2026-11-24) — local dev now uses a local Supabase stack (CLI 2.117.0 + Docker) instead of prod, so local testing no longer writes real prod data. Scripts `npm run db:start/stop/reset/status`; schema in `supabase/migrations/` (mirrors prod; fixed drift in the old `01_`/`02_` SQL files, which were removed); seed user `dev@local.test` + 2 fake scores; prod env in `.env.prod-reference`. Chose local over a cloud non-prod project because Pro-plan projects each bill compute (~$10/mo). See `supabase/README.md`.  
 1. **App logo** (PR #7, merged) — new logo wired into app icon, favicon, splash, and Android adaptive icon; regenerated full-bleed (light artboard bg → navy `#01051D`) so the OS mask renders cleanly. Master source at `assets/images/score-slinger.png`. Baked at build time — verify on a native/EAS build.  
 2. **tsc + lint cleanup** (PR #6, merged) — 0 tsc errors / 0 lint warnings (a first). Also fixed a real native bug: `expo-file-system`'s `readAsStringAsync`/`EncodingType` moved to `/legacy` in SDK 56 — the native upload path now imports from there (web unaffected; verify on device).  
 3. **Analytics event coverage** (PR #4, merged) — comprehensive PostHog tracking of every user action (~40 events), mobile gestures tagged with `platform`. Catalog in `CONTEXT.md → External Integrations → PostHog`. Separate **Non-Prod PostHog project** for local/preview.  
@@ -155,7 +162,10 @@ Earlier milestones (still current): the UI redesign (expo-router tab + modal arc
 ## Next Up
 
 - [ ] Native build verification — app icons/splash (#7) + native-upload fix (#6), both baked at build time  
-- [ ] Separate Non-Prod Supabase project (local dev currently writes to the prod DB) — highest-value  
+- [ ] Vercel previews still point at the prod Supabase project (options: cloud non-prod project, Supabase Branching)  
+- [ ] Device testing against local Supabase (Android emulator `10.0.2.2:54321`; physical phone needs Mac LAN IP)  
+- [ ] Clean up orphaned storage objects in prod (33 objects in `scores` vs 5 rows)  
+- [ ] Upgrade Supabase CLI to v3 (currently 2.117.0)  
 - [ ] Observability / error tracking (e.g. Sentry)  
 - [ ] Deferred dep majors: ESLint 9 → 10, TypeScript 5 → 6 (await tooling support)  
 - [ ] Future: profile photo support (avatar circle already in place, shows initials — swap for `<Image>`)  
@@ -172,5 +182,9 @@ Earlier milestones (still current): the UI redesign (expo-router tab + modal arc
 - **Supabase redirect URLs**: Preview URL must be whitelisted or magic link redirects to prod  
 - **Local server port is 5055** (not 5000 — macOS AirPlay Receiver binds 5000, causing `EADDRINUSE`). `localhost:5055` root returns 404 — expected, only `/api/*` is handled  
 - **PostHog fires locally** if `EXPO_PUBLIC_POSTHOG_KEY` is set in `.env` — use the **Non-Prod** PostHog project's key locally so dev events don't land in production analytics  
-- **`EXPO_PUBLIC_*` changes** require a full Vercel redeploy with no build cache
+- **`EXPO_PUBLIC_*` changes** require a full Vercel redeploy with no build cache  
+- **Docker Desktop must be running** for `npm run db:start`; the stack is not started by `npm run dev`  
+- **`npm run db:reset` wipes local data** (re-applies migrations + seed) — local only, never `--linked`  
+- **Vercel previews still hit the prod Supabase project** — local can't serve them  
+- **Prod-only users don't exist locally** — use `dev@local.test` or add one in Studio → Authentication → Add user
 

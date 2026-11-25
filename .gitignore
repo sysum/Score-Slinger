@@ -43,3 +43,7 @@ yarn-error.*
 
 # Training / reference assets
 attached_assets/
+
+# Supabase CLI local state
+supabase/.temp/
+supabase/.branches/

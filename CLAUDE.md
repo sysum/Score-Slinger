@@ -96,11 +96,13 @@ Score Slinger is a mobile \+ web app for logging scores from theme park ride gam
 
 ├── supabase/
 
-│   ├── 01\_scores\_table.sql     \# Creates scores table \+ enables RLS
+│   ├── config.toml             \# Local Supabase stack config (auth, ports, redirects)
 
-│   ├── 02\_storage\_policies.sql \# Storage bucket RLS policies
+│   ├── migrations/             \# Schema source of truth — scores table, storage bucket \+ policies
 
-│   └── README.md               \# Step-by-step Supabase setup instructions
+│   ├── seed.sql                \# Local seed — test user dev@local.test \+ 2 fake scores
+
+│   └── README.md               \# Local Supabase workflow guide \+ prod project setup
 
 ├── vercel.json           \# Vercel build \+ routing config
 
@@ -125,7 +127,7 @@ All routes require `Authorization: Bearer <supabase_jwt>` — protected by `requ
 
 ## Database (Supabase)
 
-Schema is managed via the **Supabase dashboard** — no ORM or migration CLI. SQL setup files are in `supabase/`. The `shared/schema.ts` file contains only the TypeScript `Score` type for use across client and server.
+No ORM. The schema source of truth is `supabase/migrations/` (`20260101000000_scores_table.sql`, `20260101000001_storage_bucket_and_policies.sql`), which mirror live prod exactly and build the full schema (including the `scores` bucket) on a local Supabase stack. Local dev runs against that stack (Supabase CLI \+ Docker), not prod. To change the schema: `supabase migration new <name>`, test locally with `npm run db:reset`, then apply to prod via the dashboard SQL Editor (or Supabase MCP `apply_migration`) — prod's existing schema predates the migrations folder. The `shared/schema.ts` file contains only the TypeScript `Score` type for use across client and server.
 
 ### `scores` table
 
@@ -190,6 +192,7 @@ See `.env.example` for the full list.
 
 - `EXPO_PUBLIC_*` — safe for the client (Expo app), bundled into the app build  
 - Everything else — server-only, set in Vercel dashboard for production
+- **Local `.env` points at the local Supabase stack** (`SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_URL` = `http://127.0.0.1:54321`; service role + anon keys from `supabase status -o env` — well-known local demo keys, not secrets). Prod values live in `.env.prod-reference` (gitignored; never commit). Switching to prod is a deliberate `cp .env.prod-reference .env`. `OPENAI_API_KEY` and the Non-Prod PostHog key are unchanged.
 
 ### Required variables
 
@@ -223,7 +226,17 @@ EXPO\_PUBLIC\_POSTHOG\_HOST=  \# PostHog ingest host (default: https://us.i.post
 
 ## Local Development
 
-Requires a `.env` at the repo root (copy `.env.example`). Then run both servers with one command:
+Requires a `.env` at the repo root (copy `.env.example`) and **Docker Desktop running**. Start the local Supabase stack first (cold start ~30s; deliberately not chained into `npm run dev`):
+
+npm run db:start   \# supabase start — also db:stop, db:reset (re-applies migrations \+ seed, wipes local data), db:status
+
+Local endpoints: API `http://127.0.0.1:54321`, Postgres `postgresql://postgres:postgres@127.0.0.1:54322/postgres`, Studio `http://127.0.0.1:54323`, Mailpit (local inbox for magic-link emails) `http://127.0.0.1:54324`.
+
+Sign in as the seeded test user `dev@local.test` — request a magic link, then open it from Mailpit. Prod users don't exist locally; add more via Studio → Authentication → Add user (auto-confirm).
+
+Native caveat: iOS Simulator reaches `127.0.0.1`; Android emulator needs `10.0.2.2:54321`; a physical phone needs the Mac's LAN IP in `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_DOMAIN`.
+
+Then run both servers with one command:
 
 npm run dev   \# runs server:dev + expo:dev together via concurrently
 
@@ -269,7 +282,9 @@ The local server port is **5055** (not 5000 — macOS AirPlay Receiver binds 500
 - Auth screen is in `components/AuthScreen.tsx` — method switcher pattern ready for future email/password  
 - `scores.user_id` stores `auth.users.id` on every insert
 
-### Supabase dashboard config required
+### Supabase dashboard config required (production project only)
+
+Local auth is configured in `supabase/config.toml` instead: invite-only (`enable_signup = false`), site_url `http://localhost:8081`, redirects `http://localhost:8081/**` and `scoreslinger://**`.
 
 1. Auth → Settings → **Disable "Enable Sign Ups"** (invite-only)  
 2. Auth → URL Configuration → Redirect URLs:  
@@ -284,9 +299,13 @@ The local server port is **5055** (not 5000 — macOS AirPlay Receiver binds 500
 
 - [ ] Future: add email/password auth method to `components/AuthScreen.tsx`  
 - [ ] Future: per-user score filtering (RLS on `scores` table by `user_id`) if needed  
-- [ ] Future: profile photo support (avatar circle in Profile tab is ready — currently shows initials)
+- [ ] Future: profile photo support (avatar circle in Profile tab is ready — currently shows initials)  
+- [ ] Known risk: Vercel preview deployments still point at the **prod** Supabase project (local can't serve them) — options: a cloud non-prod project, or Supabase Branching  
+- [ ] Follow-up: test native devices (simulator/emulator/phone) against the local Supabase stack  
+- [ ] Follow-up: clean up orphaned images in prod storage (33 objects in `scores` vs 5 rows, from discarded uploads)  
+- [ ] Follow-up: upgrade Supabase CLI to v3 (currently 2.117.0)
 
-Recently done: dependency refresh to Expo SDK 56 (from 54), all `npm audit` highs cleared; removed legacy `scripts/build.js`, `server/templates/landing-page.html`, and orphaned `shared/models/chat.ts`; added `npm run dev`; moved local server port to 5055.
+Recently done: local Supabase dev workflow (CLI \+ Docker, `npm run db:*`, schema in `supabase/migrations/` mirroring prod, seed user `dev@local.test`, prod env kept in `.env.prod-reference`) — local dev no longer writes to prod. Earlier: dependency refresh to Expo SDK 56 (from 54), all `npm audit` highs cleared; removed legacy `scripts/build.js`, `server/templates/landing-page.html`, and orphaned `shared/models/chat.ts`; added `npm run dev`; moved local server port to 5055.
 
 ---
 
