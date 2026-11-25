@@ -1,3 +1,5 @@
+// Must stay the first import: initialises Sentry before anything else loads.
+import "../server/instrument";
 import { handle } from "hono/vercel";
 import app from "../server/app";
 

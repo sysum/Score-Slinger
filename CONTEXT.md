@@ -24,6 +24,7 @@ This is a small, invite-only app for a group of friends/family. There is no publ
 | AI | OpenAI `gpt-4.1-mini` vision | Parses scoreboard images |
 | Data fetching | TanStack Query ^5 | Client-side, infinite stale time, no auto-refetch |
 | Analytics | PostHog (`posthog-react-native`) | Event tracking via `lib/analytics.ts` wrapper; no-op if key not set |
+| Observability | Sentry (`@sentry/hono` + `@sentry/node` 11.18.0, server only so far) | Errors, traces, structured logs for the API; no-op if `SENTRY_DSN` not set. See Observability below |
 | State | React `useState` / `useRef` | No global state library |
 | Styling | React Native `StyleSheet` \+ theme context | Dark/light/system modes |
 
@@ -186,11 +187,19 @@ lib/
 
 server/
 
-  app.ts                All 7 API routes \+ CORS middleware \+ requireAuth middleware
+  app.ts                All 7 API routes \+ Sentry \+ request-id \+ CORS \+ requireAuth middleware
 
                         toScore() maps snake\_case DB rows → camelCase Score type
 
-  index.ts              Local dev entry point (node-server, port 5055\)
+  index.ts              Local dev entry point (node-server, port 5055\) — imports ./instrument first
+
+  instrument.ts         Sentry.init (score-slinger-api) — first import of api/index.ts + server/index.ts
+
+  log.ts                Structured logger (Sentry.logger wrapper + scrubbed console.log mirror)
+
+  scrub.ts              Secret/image redaction applied to every Sentry event, log, breadcrumb, span
+
+  parsePrompt.ts        OpenAI parse prompt, model, request builder, JSON extraction + sanity checks
 
   supabase.ts           Admin Supabase client (secret / service-role key — server only)
 
@@ -339,6 +348,37 @@ SDK / automatic events (not from `track()`):
 - **Errors:** `$exception` trends; `score_parse_failed` broken down by `stage`; `api_request_failed` broken down by `route` and `status`; `image_upload_failed` count.
 - **Gameplay stats** (on `score_saved`, ideally excluding discarded `score_id`s): average `team_score`; `top_color` distribution; averages of `score_blue` / `score_yellow` / `score_red` / `score_purple` and the three `objective_*` props.
 
+### Observability (Sentry)
+
+Plan and phases: `docs/SENTRY_PLAN.md`. **Phase 1 (server) is implemented**; client SDK, source maps and replay are later phases.
+
+- **Split:** PostHog = product analytics (client, what users do; the client `*_failed` events stay). Sentry = engineering telemetry (errors, traces, structured logs). Today Sentry covers only the API (Sentry project `score-slinger-api`); the client project `score-slinger-web` arrives in Phase 2.
+- **Why:** Vercel Hobby keeps runtime logs for 1 hour. Sentry keeps the per-request access log, parse results and errors for its retention window, on the $0 free plan.
+- **Init:** `server/instrument.ts`, imported as the **first line** of `api/index.ts` and `server/index.ts` (keep it first). `environment` = `VERCEL_ENV` (`production` / `preview`, `development` locally); `release` = `SENTRY_RELEASE` ?? `VERCEL_GIT_COMMIT_SHA`; `tracesSampleRate` 1.0; `OPTIONS` spans ignored. Logs are on by default in SDK v11 (no `enableLogs` option).
+- **No-op without a DSN:** with `SENTRY_DSN` unset (local default) the SDK initialises but sends nothing, and `server/log.ts` skips `Sentry.logger`. Every log line is still mirrored to the console.
+- **Privacy:** explicit `dataCollection`: no bodies, headers, cookies, query strings, IP/inferred user info, DB query data, stack-frame locals, or GenAI inputs (the OpenAI request holds the base64 image). `requireAuth` calls `Sentry.setUser({ id, username: display_name })`, **never email**. `server/scrub.ts` redacts JWTs, `sb_secret_…` / `sb_publishable_…`, `sk-…`, `token=` / `code=` values and `data:image/…` strings in every event, log, breadcrumb and span (`beforeSend` / `beforeSendLog` / `beforeBreadcrumb` / `beforeSendSpan`).
+- **Request correlation:** middleware order is `sentry(app)` → request-id → `cors` → `requireAuth`. The request-id middleware accepts an incoming `X-Request-Id` (≤64 chars of `[\w-]`) or mints `crypto.randomUUID()`, sets `request_id`, `route` (matched path pattern, e.g. `/api/scores/:id`) and `method` as Sentry tags + scope attributes (so every log/error/span carries them), and echoes `X-Request-Id` in the response (CORS-exposed). Unexpected 500s also return `requestId` in the JSON body next to the unchanged `error` string. To investigate a failure, search Sentry Logs/Issues for `request_id:<id>`.
+- **Serverless flush:** `@sentry/node` 11.18.0 registers a Vercel keep-alive when `process.env.VERCEL` is set (`setupVercelKeepAlive`): on each `http.server.response.finish` it calls the Vercel request context's `waitUntil` to wait for the root span and then `client.flush(2000)`. No `@vercel/functions` dependency needed.
+- **Logging rule:** server code uses `log.{debug,info,warn,error}(event, attrs)` from `server/log.ts`, never bare `console.*` (the `server/index.ts` startup line is the one exception). `consoleLoggingIntegration` captures any remaining `console.warn/error` as a safety net; `log.ts` mirrors to `console.log`, so nothing is duplicated. Never pass image bytes, base64, tokens or keys as attributes.
+- **Route errors:** catch-alls call `fail(c, event, err, message)`: `Sentry.captureException` (Supabase plain-object errors are wrapped in an `Error`), logs `<event>.failed { error_message }`, returns `{ error: message, requestId }` with 500. The image-url route keeps its 200 `{ url: null }` fallback but still reports.
+
+#### Server log events
+
+| Event | Level | Attributes |
+| :---- | :---- | :---- |
+| `request.completed` | info | `method`, `route`, `status`, `duration_ms`, `request_id` (one per non-OPTIONS request: the access log) |
+| `storage.download_failed` | warn | `image_path`, `error_message`, `error_status` |
+| `exif.parse_failed` | debug | `error_message` |
+| `parse.completed` | info | `model`, `duration_ms`, `prompt_tokens`, `completion_tokens`, `finish_reason`, `image_bytes`, `has_exif_date`, `content` (raw OpenAI reply, ≤2 KB) |
+| `parse.sanity_check_failed` | warn | `problems` |
+| `parse.no_json` | error | `content` (≤2 KB) |
+| `scores.inserted` | info | `score_id`, `team_score` |
+| `scores.player_names_updated` / `scores.played_date_updated` / `scores.deleted` | info | `score_id` |
+| `storage.signed_url_failed` / `storage.remove_failed` | warn | `score_id`, `image_path`, `error_message` |
+| `parse.failed`, `scores.list.failed`, `scores.insert.failed`, `scores.player_names.failed`, `scores.played_date.failed`, `scores.image_url.failed`, `scores.delete.failed` | error | `error_message` (plus a Sentry issue tagged `failed_event`) |
+
+Every event also carries `request_id`, `route`, `method`, `user_id` (after auth), `user.name` (display name), the trace id, `sentry.environment` and `sentry.release`.
+
 ---
 
 ## How to Run / Build / Test
@@ -394,6 +434,8 @@ Native caveat: iOS Simulator reaches `127.0.0.1`; Android emulator needs `10.0.2
 EXPO\_PUBLIC\_DOMAIN=www.slingers.app   \# must match browsing domain, no https://
 
 ALLOWED\_ORIGINS=https://www.slingers.app,https://slingers.app
+
+SENTRY\_DSN=                          \# score-slinger-api project DSN — Production + Preview (server-only; leave unset locally)
 
 ### Database setup
 
