@@ -164,7 +164,7 @@ All require `Authorization: Bearer <supabase_jwt>`.
 2. **App logo** (PR #7, merged) — new logo wired into app icon, favicon, splash, and Android adaptive icon; regenerated full-bleed (light artboard bg → navy `#01051D`) so the OS mask renders cleanly. Master source at `assets/images/score-slinger.png`. Baked at build time — verify on a native/EAS build.  
 3. **tsc + lint cleanup** (PR #6, merged) — 0 tsc errors / 0 lint warnings (a first). Also fixed a real native bug: `expo-file-system`'s `readAsStringAsync`/`EncodingType` moved to `/legacy` in SDK 56 — the native upload path now imports from there (web unaffected; verify on device).  
 4. **Analytics event coverage** (PR #4, merged) — comprehensive PostHog tracking of every user action (~40 events), mobile gestures tagged with `platform`. Catalog in `CONTEXT.md → External Integrations → PostHog`. Separate **Non-Prod PostHog project** for local/preview.  
-5. **Dependency refresh** (PR #3, merged) — Expo SDK 54 → 56 (React 19.2, RN 0.85), `@hono/node-server` 1 → 2, `zod` 3 → 4; all `npm audit` highs cleared. `npm run dev` runs both servers; local server port **5055** (AirPlay binds 5000).
+5. **Dependency refresh** (PR #3, merged) — Expo SDK 54 → 56 (React 19.2, RN 0.85), `@hono/node-server` 1 → 2, `zod` 3 → 4; all `npm audit` highs cleared at the time (no longer true; see CONTEXT.md → Dependency security). `npm run dev` runs both servers; local server port **5055** (AirPlay binds 5000).
 
 Earlier milestones (still current): the UI redesign (expo-router tab + modal architecture; History / Profile / Upload / Score-detail screens), the `DELETE /api/scores/:id` ownership check, and shareable deep-link score URLs.
 
