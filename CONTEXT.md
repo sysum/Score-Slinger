@@ -66,6 +66,20 @@ Browser/App                Supabase Storage     Hono API (Vercel)      OpenAI
 
 Images are **never stored as base64 in the database**. `imagePath` is a string path in the private `scores` bucket. Displaying an image always requires a signed URL from `GET /api/scores/:id/image-url` (60s expiry).
 
+### API routes (`server/app.ts`)
+
+All require `Authorization: Bearer <supabase_jwt>` (`requireAuth` middleware).
+
+| Method | Route | Description |
+| :---- | :---- | :---- |
+| POST | `/api/parse-score` | `{ imagePath }` → OpenAI vision → parsed JSON |
+| GET | `/api/scores` | All scores, `created_at` DESC |
+| POST | `/api/scores` | Save a parsed score (auto-saved by the upload screen on parse success) |
+| PATCH | `/api/scores/:id/player-names` | Update player name labels (any authed user — intentional) |
+| PATCH | `/api/scores/:id/played-date` | `{ playedDate }` → stored normalized as an ISO string (`played_date` is TEXT); 400 if unparseable; owner only (403), 404 if missing |
+| GET | `/api/scores/:id/image-url` | 60s signed URL for the private image |
+| DELETE | `/api/scores/:id` | Delete score (owner only — checks `user_id`) |
+
 ### Navigation architecture
 
 expo-router tab \+ modal stack pattern:
@@ -170,7 +184,7 @@ lib/
 
 server/
 
-  app.ts                All 6 API routes \+ CORS middleware \+ requireAuth middleware
+  app.ts                All 7 API routes \+ CORS middleware \+ requireAuth middleware
 
                         toScore() maps snake\_case DB rows → camelCase Score type
 
@@ -236,7 +250,7 @@ vercel.json             Build command, output dir, /api/\* routing
 
 #### Event catalog
 
-Naming is `snake_case` `noun_verb`. To add an event, call `analytics.track("name", { props })`; keep names/props consistent with the table below.
+Naming is `snake_case` `noun_verb`. To add an event, call `analytics.track("name", { props })`; keep names/props consistent with the table below. Going forward, new props use snake\_case (e.g. `score_id`); older events still use `scoreId`.
 
 | Event | Fires when | Properties |
 | :---- | :---- | :---- |
@@ -264,7 +278,8 @@ Naming is `snake_case` `noun_verb`. To add an event, call `analytics.track("name
 | `score_kept` | "Done" tapped, keeping the saved score | `scoreId` |
 | `score_discarded` | Upload discarded (deletes the saved record) | — |
 | `played_date_edit_started` | Played-date editor opened | — |
-| `played_date_changed` | Played date saved | — |
+| `played_date_changed` | Played date saved (persisted via `PATCH /api/scores/:id/played-date` when the score was auto-saved; local-only otherwise) | `location` (`upload`), `score_id` (null if the auto-save failed) |
+| `played_date_change_failed` | Played-date PATCH failed (modal stays open with inline error) | `location` (`upload`), `score_id`, `error` |
 | `player_name_edit_started` | A player-name field opened for editing | `location` (`upload`\|`detail`) |
 | `player_names_updated` | A player name label saved | — |
 | `history_sort_opened` | History sort picker opened | — |
