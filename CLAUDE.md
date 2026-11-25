@@ -21,7 +21,7 @@ Score Slinger is a mobile \+ web app for logging scores from theme park ride gam
 | AI parsing | OpenAI `gpt-4.1-mini` vision |
 | Auth | Supabase Auth — magic link, PKCE flow, invite-only |
 | Analytics | PostHog (`posthog-react-native`) — event tracking, web \+ native |
-| Observability | Sentry (`@sentry/hono` \+ `@sentry/node`, pinned 11.18.0) — API errors, traces, structured logs (project `score-slinger-api`); no-op without `SENTRY_DSN`. Client is Phase 2 — see `docs/SENTRY_PLAN.md` |
+| Observability | Sentry (`@sentry/hono` \+ `@sentry/node`, pinned 11.12.0) — API errors, traces, structured logs (project `score-slinger-api`); no-op without `SENTRY_DSN`. Client is Phase 2 — see `docs/SENTRY_PLAN.md` |
 
 ---
 

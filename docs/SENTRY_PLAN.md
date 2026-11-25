@@ -37,7 +37,7 @@ Status as of 2026-11-25: **Phase 1 (server) implemented** on `feat/sentry-server
 
 ### Phase 1: Server (implemented)
 
-- `@sentry/hono` + `@sentry/node`, both pinned to exactly **11.18.0**. `honoIntegration` and `@hono/sentry` are deprecated/removed; not used.
+- `@sentry/hono` + `@sentry/node`, both pinned to exactly **11.12.0** (newest release ≥2 weeks old at install time). `honoIntegration` and `@hono/sentry` are deprecated/removed; not used.
 - `server/instrument.ts` calls `Sentry.init` from `@sentry/hono/node`. It's imported as the **first line** of `api/index.ts` and `server/index.ts`.
   - `dsn: SENTRY_DSN`, `environment: VERCEL_ENV ?? "development"`, `release: SENTRY_RELEASE ?? VERCEL_GIT_COMMIT_SHA`
   - `tracesSampleRate: 1.0`, `ignoreSpans` for `OPTIONS`
@@ -51,7 +51,7 @@ Status as of 2026-11-25: **Phase 1 (server) implemented** on `feat/sentry-server
   - `requireAuth`: `Sentry.setUser({ id, username: user_metadata.display_name })` + `user_id` attribute.
 - `server/log.ts`: `log.{debug,info,warn,error}(event, attrs)` over `Sentry.logger`, mirrored (scrubbed) to `console.log`. Every server `console.*` was replaced; see CONTEXT.md → Observability → Server log events. The `server/index.ts` startup line stays `console.log`.
 - `fail(c, event, err, message)`: `captureException` + `<event>.failed` log + `{ error: message, requestId }` with 500. Error strings and status codes are unchanged.
-- **Serverless flush:** `@sentry/node` 11.18.0 calls `setupVercelKeepAlive(client)` in `init` when `process.env.VERCEL` is set. It subscribes to the `http.server.response.finish` diagnostics channel and calls the Vercel request context's `waitUntil(...)`, which waits up to 2 s for the root span and then runs `client.flush(2000)`. No `@vercel/functions` needed. If Phase 0 step 9 shows missing logs or spans in Vercel, add `waitUntil(Sentry.flush(2000))` from `@vercel/functions` in the request-id middleware.
+- **Serverless flush:** `@sentry/node` 11.12.0 calls `setupVercelKeepAlive(client)` in `init` when `process.env.VERCEL` is set. It subscribes to the `http.server.response.finish` diagnostics channel and calls the Vercel request context's `waitUntil(...)`, which waits up to 2 s for the root span and then runs `client.flush(2000)`. No `@vercel/functions` needed. If Phase 0 step 9 shows missing logs or spans in Vercel, add `waitUntil(Sentry.flush(2000))` from `@vercel/functions` in the request-id middleware.
 
 ### Phase 2: Client SDK + PostHog error-capture split
 
