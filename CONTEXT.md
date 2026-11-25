@@ -147,11 +147,24 @@ contexts/
 
   ThemeContext.tsx      Provides colors \+ isDark \+ setMode to all components
 
+  ToastContext.tsx      App-level toast — ToastProvider (mounted in app/\_layout.tsx above
+                        the Stack, so toasts survive navigation) \+ useToast().showToast(
+                        message, { type?: "success" | "error" }). Renders components/Toast.tsx:
+                        Reanimated fade/slide, 2.5s auto-dismiss, above the TabBar, never
+                        blocks touches; on iOS inside FullWindowOverlay so it sits above modals
+
 lib/
+
+  use-delete-score.ts   useDeleteScore(source) — shared delete flow for History + Score Detail
+                        modals: useRef double-tap guard, isDeleting/error state, optional
+                        optimistic cache removal + rollback, 404 treated as success, toast,
+                        score\_deleted / score\_delete\_failed analytics
+
 
   supabase.ts           Client Supabase instance (publishable key in prod / anon demo key locally, PKCE, AsyncStorage)
 
-  query-client.ts       getApiUrl(), apiRequest(), getQueryFn(), QueryClient
+  query-client.ts       getApiUrl(), apiRequest(), getQueryFn(), QueryClient; non-2xx responses
+                        throw ApiError (`.status`, message "<status>: <body>")
 
   analytics.ts          PostHog wrapper — identify/track/screen/reset; null-safe (no-op if key missing)
 
@@ -262,7 +275,8 @@ Naming is `snake_case` `noun_verb`. To add an event, call `analytics.track("name
 | `score_detail_closed` | Score detail back/close tapped | `scoreId` |
 | `score_delete_requested` | Delete initiated (opens confirm) | `via` (`swipe`\|`detail_button`), `scoreId?` |
 | `score_delete_canceled` | Delete confirm dismissed | `source` (`history`\|`detail`), `scoreId?` |
-| `score_deleted` | Delete confirmed and completed | `source`, `scoreId` |
+| `score_deleted` | Delete confirmed and completed (fires once per success; a 404 counts as success) | `source`, `scoreId`, `already_deleted?` (`true` only when the server returned 404) |
+| `score_delete_failed` | Delete request failed (non-404 error); modal stays open for retry | `source` (`history`\|`detail`), `scoreId`, `error` |
 | `appearance_changed` | Theme changed in Profile | `mode` (`dark`\|`light`\|`system`) |
 | `date_format_changed` | Date format changed in Profile | `format` |
 | `default_sort_changed` | Default sort changed in Profile | `sort` |

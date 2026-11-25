@@ -25,12 +25,22 @@ No major initiative in flight. The app is healthy and in production; the depende
 ### Post-deploy follow-ups (branch `fix/post-deploy-followups`, 2026-11-24)
 
 - **Blank player names:** the prompt schema said `"name": "<player name or identifier>"`; the board shows no names, so `gpt-4.1-mini` could return `""` and the UI (which falls back to `player.name`) rendered blank labels. Prompt now asks for the capitalized color name, and `normalizePlayerNames()` (in `server/parsePrompt.ts`, called in `/api/parse-score` before the sanity checks) fills any missing/blank name with the capitalized color. Re-validated live (gpt-4.1-mini, 3 runs x 5 boards): all fields exact, names returned as color names every time.
-- **DELETE race:** `DELETE /api/scores/:id` no longer uses `.single()` on the delete step; 0 rows deleted returns 404 `Score not found` (no error log) instead of a 500 from PGRST116. Client-side delete UX is deliberately deferred (see Next Steps item 11).
+- **DELETE race:** `DELETE /api/scores/:id` no longer uses `.single()` on the delete step; 0 rows deleted returns 404 `Score not found` (no error log) instead of a 500 from PGRST116. Client-side delete UX followed in `feat/delete-feedback` (see Recently Completed → Delete confirmation feedback).
 - **Docs:** prod `SUPABASE_SERVICE_ROLE_KEY` is now a Supabase secret key (`sb_secret_…`) stored as a Vercel Secret; variable name kept for compatibility, code unchanged. Docs reworded accordingly. (The follow-on client-key swap and legacy-key disable are complete — see Recently Completed → Supabase API key migration.)
 
 ---
 
 ## Recently Completed (shipped to `main`)
+
+### Delete confirmation feedback (branch `feat/delete-feedback`, 2026-11-24 — pushed, PR not yet opened)
+
+**Problem:** confirming a delete gave no feedback, so users tapped Confirm again and sent duplicate DELETEs (seen in prod; the server already 404s the duplicate). Score Detail also closed the modal and navigated back regardless of outcome.
+
+**Fix (both the History swipe-delete modal and the Score Detail modal):** shared hook `lib/use-delete-score.ts` (`useDeleteScore(source)`) holds the flow. A `useRef` re-entry guard stops double-taps; the Delete button shows a spinner + "Deleting…" and Cancel / overlay tap / Android back are disabled while the request runs; the modal stays open until it finishes. On success the modal closes and an app-level **"Score deleted" toast** shows. History removes the row from the `["/api/scores"]` cache right away (optimistic), then invalidates. Detail calls `router.back()`, and the toast is still visible on History. On failure the modal stays open with an inline error ("Couldn't delete — check your connection and try again."), the buttons re-enable, and History rolls back the optimistic removal. **A 404 counts as success** (already deleted). `apiRequest` now throws an `ApiError` with a `status` field; the message format (`"<status>: <body>"`) is unchanged. Analytics: `score_deleted` fires once per success (`already_deleted: true` on the 404 path); new `score_delete_failed` event `{ source, scoreId, error }`.
+
+**Toast:** `contexts/ToastContext.tsx` (`ToastProvider` + `useToast().showToast(message, { type?: "success" | "error" })`) + `components/Toast.tsx`, mounted in `app/_layout.tsx` above the Stack so it survives navigation. Reanimated fade/slide, auto-dismiss after 2.5s, one at a time, bottom-anchored above the TabBar (60px + safe-area inset), theme colors, `pointerEvents: "none"`, `accessibilityRole="alert"` + live region (plus `announceForAccessibility` on iOS). On iOS it renders inside `react-native-screens`' `FullWindowOverlay` so it shows above native modals. No new dependency.
+
+**Verified:** tsc 0 errors, lint 0 problems; web dev bundle compiles; local API DELETE on the same score returned 200 then 404. Not yet clicked through by hand — see the manual checklist in the PR/hand-off.
 
 ### Supabase API key migration (2026-11-24)
 
@@ -190,5 +200,5 @@ Backlog, no active work:
 8. Future: profile photo support (avatar circle already in place — swap initials for `<Image>`)  
 9. Future: email/password auth as second method in `components/AuthScreen.tsx`  
 10. Future: per-user score filtering via RLS on `scores` table
-11. **Delete UX feedback** — the delete confirmation gives no feedback that the delete is in progress. Users tap Confirm again, causing duplicate DELETE requests (seen in prod 2026-11-24; the server now returns 404 for the duplicate). Add an in-progress state (disabled button / "Deleting…" / spinner) and a success confirmation (e.g. toast or optimistic removal) on both the History swipe-delete modal and the Score Detail delete modal.  
+11. ~~**Delete UX feedback**~~ — **done** (branch `feat/delete-feedback`, 2026-11-24; see Recently Completed → Delete confirmation feedback). Still needs a manual click-through on web + a native device (toast above iOS modals uses `FullWindowOverlay`).  
 

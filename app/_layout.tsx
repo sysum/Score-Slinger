@@ -16,6 +16,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { queryClient } from "@/lib/query-client";
 import { StatusBar } from "expo-status-bar";
 import { ThemeProvider, useTheme } from "@/contexts/ThemeContext";
+import { ToastProvider } from "@/contexts/ToastContext";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -287,9 +288,12 @@ export default function RootLayout() {
           <GestureHandlerRootView style={{ flex: 1 }}>
             <KeyboardProvider>
               <ThemedStatusBar />
-              <AuthGate>
-                <RootLayoutNav />
-              </AuthGate>
+              {/* Above the Stack so toasts survive navigation (e.g. detail → back). */}
+              <ToastProvider>
+                <AuthGate>
+                  <RootLayoutNav />
+                </AuthGate>
+              </ToastProvider>
             </KeyboardProvider>
           </GestureHandlerRootView>
         </ThemeProvider>
