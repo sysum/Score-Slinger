@@ -6,13 +6,27 @@ Last updated: 2026-11-25
 
 ## Current Goal
 
-Dependency security batches (a) + (b) are done on `chore/deps-security` (not pushed; verify on the Vercel preview). Batch (c) is scheduled for on/after 2026-12-02. Sentry Phases 1–3 are merged (PR #19, PR #21). PostHog Phase 3 (`posthog-node` server-side events) and Sentry Phase 4 (optional on-error replay) follow.
+**Clean checkpoint (end of the 2026-11-24/25 session).** Everything is merged and live in production (latest: PR #22 at `f5f96b8`). No open PRs and no work in flight. The next scheduled item is dependency batch (c) on/after **2026-12-02**. After that, pick from Next Steps: build the PostHog Insights in the UI, the pre-save-cancel orphan gap, decide on Sentry Phase 4 (on-error replay), and the Expo SDK 58 upgrade as its own project.
 
 ---
 
 ## In Progress
 
-### Dependency security batches (a) + (b) (branch `chore/deps-security`, 2026-11-25 — not pushed)
+Nothing in flight. Scheduled and future items are below.
+
+---
+
+## Recently Completed (2026-11-25 session)
+
+### Prod data cleanup (2026-11-25, approved by the user; done via guarded SQL + Storage API)
+
+The before-state was captured first. Final state: 5 scores, all with images; 5 storage objects (21 MB, down from 35 objects / 278 MB); 0 orphans.
+- **Oct 27 2026 score restored** (id `da7ed7a6…`, team 912,800, names Jas / Bee / Sabrina / Sam). It had been deleted from the app on 2026-11-25 03:39 UTC by a double-tap delete. It was re-inserted with its original id, created_at, corrected colors and its still-present photo.
+- **Aug 25 2025 duplicate removed**: the March original (`095841a1…`, `game_name` "Unknown", broken image path). The Nov 25 re-upload `b4f2e713…` (Sam / Bee) is kept.
+- **Sep 29 2025 image path fixed.** Old local-dev uploads stored `…blob:http://localhost:8081/…`, but Storage normalized the object name to `http:/` (single slash), so the signed URL failed. Updated `image_path` to the real object name.
+- **30 orphaned images deleted** via the Storage API. SQL deletes on `storage.objects` are blocked by Supabase's `protect_delete` trigger. The script used `node --env-file=.env.prod-reference` (the key was never printed), ran a dry run first, and re-checked every candidate against the live table before deleting.
+
+### Dependency security batches (a) + (b) (PR #22, merged 2026-11-25 — live)
 
 Accepted risks and the supply-chain rule: **CONTEXT.md → Dependency security**.
 
@@ -21,7 +35,11 @@ Accepted risks and the supply-chain rule: **CONTEXT.md → Dependency security**
 - **Finding (supply chain):** `npx expo install --fix` re-resolves the whole transitive tree, and pulled 13 versions under 7 days old (e.g. `node-forge` 1.4.4, `source-map-js` 1.2.4, `brace-expansion` 5.1.0, `@babel/*` 7.29.15, `@expo-google-fonts/material-symbols` 0.4.55). Redone as `npm install --before=2026-11-18T00:00:00Z <expo targets>` (and the same `--before` on `npm update`), so every resolved version is ≥7 days old. Side effect: some batch (c) packages moved to cutoff-safe versions (`node-forge` 1.4.3, `postcss` 8.5.33, `source-map-js` 1.2.2, nested `brace-expansion` 5.0.13); batch (c) is still needed for their fixes.
 - **Not fixable in (b):** `shell-quote` (critical) — `concurrently` 10.0.3 pins exactly 1.8.4, and that single hoisted copy is also what `react-devtools-core` uses; `concurrently` 10.0.7 (batch c) pins 1.12.0.
 - **Verified:** tsc 0 errors, `expo lint` clean, `expo install --check` up to date. Server boots with dummy env and no DSN; `GET /api/scores` → 401 `{"error":"Unauthorized"}` with `X-Request-Id`; the CORS preflight from `http://localhost:8081` echoes the origin, sets `Access-Control-Allow-Credentials: true` and allows `authorization, x-request-id, sentry-trace, baggage`. expo-doctor: 2 failures left (`newArchEnabled` schema, Hermes V1 regression, which needs SDK 57+); the package patch-mismatch failure is resolved. `npm audit --omit=dev`: 36 (1 critical / 18 high / 16 moderate / 1 low) → 23 (1 critical / 8 high / 14 moderate / 0 low).
-- **Needs the user:** push, open the PR, check the Vercel preview build (web export not run locally per project rule).
+- **Shipped:** the PR #22 preview passed (build OK, source maps uploaded, no `.map` served, server booted on hono 4.13 per Sentry log `environment: preview`). Merged and deployed to production. An independent check confirmed all 162 changed lockfile versions are ≥7 days old.
+
+---
+
+## Scheduled / Future
 
 ### Scheduled: dependency batch (c) on/after 2026-12-02
 
@@ -39,7 +57,7 @@ Separate project (not started). Clears the residual audit findings that need a m
 
 ## Recently Completed (shipped to `main`)
 
-### Sentry Phase 2: client SDK + PostHog error-capture split (PR #21, merged 2026-11-25)
+### Sentry Phase 2: client SDK + PostHog error-capture split (PR #21, merged 2026-11-25 — live, verified in prod)
 
 Details: **CONTEXT.md → Observability (Sentry)**; plan in `docs/SENTRY_PLAN.md`.
 
@@ -51,15 +69,16 @@ Details: **CONTEXT.md → Observability (Sentry)**; plan in `docs/SENTRY_PLAN.md
 - **`expo/fetch` finding:** on web `expo/fetch` is `globalThis.fetch` captured at module load (`node_modules/expo/src/winter/fetch/fetch.web.ts:1`), while Sentry instruments by replacing `globalThis.fetch` in `Sentry.init` (`@sentry/core` `instrument/fetch.js:25`). A captured reference can predate the patch, so `query-client` now calls `globalThis.fetch` at request time (on native SDK 56 that's expo/fetch anyway).
 - **Bundle:** `metro.config.js` → `getSentryExpoConfig` (no web replay/feedback, no `annotateReactComponents` because of the React Compiler) plus a resolver that dedupes `@sentry/core` (npm nests a 10.x copy under each client `@sentry/*` package because the server's 11.x is hoisted). Dev-server minified prod bundle: 8.17 MB → 6.73 MB (gzip 1.81 → 1.46 MB).
 - **Verified locally:** tsc 0 errors, lint clean, expo-doctor same 3 pre-existing failures, `npm audit --omit=dev` no new highs (2 new moderates: `glob` via `@sentry/bundler-plugins`). Dev-server web bundle compiles, contains one `@sentry/core` copy, no `@sentry/replay` / `@sentry-internal/feedback`, and no `expo/fetch`.
-- **Needs the user:** `EXPO_PUBLIC_SENTRY_DSN` in Vercel (Production + Preview), redeploy without build cache, verify on a preview (checklist in the PR / hand-off).
+- **Setup done:** Sentry projects `score-slinger-api` / `score-slinger-web` (org `team-beam`) were created via the Sentry CLI handoff. Vercel env (Production + Preview): `SENTRY_DSN`, `EXPO_PUBLIC_SENTRY_DSN`, `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_AUTH_TOKEN` (Sensitive, created by the user; it was first misnamed `SENTRY_AUTH_Token` — env names are case-sensitive).
+- **Verified in prod:** a console test error ("sentry prod test") arrived as SCORE-SLINGER-WEB-1 with `environment: production`, release `b70223d…`, user "Sam" (no email), and symbolicated frames.
 
-### Sentry Phase 3: source maps in the Vercel build (PR #21, merged 2026-11-25)
+### Sentry Phase 3: source maps in the Vercel build (PR #21, merged 2026-11-25 — live; uploads confirmed in build logs)
 
 - `vercel.json` `buildCommand` → `npm run build:web`: `expo export --platform web --source-maps` (env mapping kept), then `expo-upload-sourcemaps dist` if `SENTRY_AUTH_TOKEN` is set, then **always** `find dist -name '*.map' -type f -delete`. Details in `docs/SENTRY_PLAN.md` → Phase 3 and CONTEXT.md → Vercel.
 - `@sentry/expo-upload-sourcemaps` pinned devDependency (8.35.0, bundles `@sentry/cli` 3.8.2); no `npx` download at build time.
 - Pairing is by Debug ID: Expo writes `//# debugId=` into each exported `.js` and `debugId` into its `.map`; Sentry's Metro premodule registers it at runtime. Org/project from `SENTRY_ORG` / `SENTRY_PROJECT`, URL from the `app.json` plugin entry (`https://sentry.io/`).
 - **Decision (trade-off):** a failed upload logs a warning and the deploy continues, so Sentry trouble never blocks a release; that deploy's client stack traces stay minified. The map deletion runs on success, failure and skip (tested with a stub uploader against a fake `dist/`).
-- **Needs the user:** Vercel env `SENTRY_AUTH_TOKEN` (Sensitive), `SENTRY_ORG=team-beam`, `SENTRY_PROJECT=score-slinger-web` (Production + Preview). Verify on the preview: no `.map` served, artifacts listed in Sentry, a test error shows source lines.
+- **Verified:** the build log shows "✅ Uploaded bundles and sourcemaps to Sentry successfully" (with a Debug ID). `/_expo/static/js/web/entry-*.js.map` serves the SPA HTML fallback, not a map. Prod error frames are symbolicated.
 
 ### TabBar haptics non-blocking (PR #20, merged 2026-11-25)
 
@@ -305,18 +324,23 @@ The `position: "absolute"` FAB with `left: "50%"` \+ `marginLeft` centering work
 
 ## Next Steps
 
-Backlog, no active work:
+Backlog, no active work. Suggested order for the next session:
+
+0a. **Dependency batch (c)** on/after **2026-12-02** (see Scheduled above). It clears the critical `shell-quote` (dev-only). Optional at the same time: `npm update zod`, which moves the transitive `zod@4.4.3` (via openai and eslint-plugin-react-hooks) to 4.6.7 (≥7 days old).
+0b. **Build the PostHog Insights/dashboard** in the PostHog UI. The list is in CONTEXT.md → PostHog → Insights to build; it's manual UI work, and there's no PostHog API key for agents.
+0c. **Pre-save-cancel orphan gap:** a cancel before the auto-save leaves the uploaded image in Storage. Fix with a storage delete policy migration (client deletes its own upload) or a server endpoint.
+0d. **Decide on Sentry Phase 4** (on-error web replay; free plan has 50 replays/month). Recommendation was "wait until an incident shows logs aren't enough".
+0e. **Expo SDK 58 upgrade** as its own project (clears the residual audit findings and the expo-doctor Hermes V1 check).
 
 1. **Native build verification** — the app icons/splash (PR #7) and the `expo-file-system/legacy` native-upload fix (PR #6) are both baked at build time and unverified on device. Confirm on a native/EAS build (or `expo run:ios`/`run:android`): home-screen icon, splash, and a native image upload.  
 2. **Vercel previews still point at the prod Supabase project** — local can't serve them, so preview testing can still write prod data. Options later: a cloud non-prod project, or Supabase Branching.  
 3. **Device testing against local Supabase** — iOS Simulator reaches `127.0.0.1`; Android emulator needs `10.0.2.2:54321`; a physical phone needs the Mac's LAN IP in `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_DOMAIN`.  
-4. **Orphaned storage objects in prod** — 33 objects in bucket `scores` vs 5 rows; discarded uploads leave images behind. Clean up, and consider fixing the discard path.  
+4. ~~**Orphaned storage objects in prod**~~ — **done** 2026-11-25 (see Recently Completed → Prod data cleanup); deletes/discards now remove images (PR #17). The remaining gap is 0c.  
 5. **Supabase CLI v3 upgrade** (currently 2.117.0).  
-6. **Observability / error tracking:** Sentry Phases 1–3 are merged (PR #19, PR #21); Phase 4 (optional on-error replay) needs a user decision (`docs/SENTRY_PLAN.md`).  
-6a. **Dependency batch (c)** on/after 2026-12-02, then the **Expo SDK 58 upgrade** as its own project (see In Progress → Scheduled / Future project).  
+6. ~~**Observability / error tracking**~~ — **done**: Sentry Phases 1–3 live and verified (PR #19, PR #21). Phase 4 is 0d.  
 7. **Deferred dep majors** — ESLint 9 → 10, TypeScript 5 → 6 (revisit once `eslint-config-expo` / Metro typings support them).  
 8. Future: profile photo support (avatar circle already in place — swap initials for `<Image>`)  
 9. Future: email/password auth as second method in `components/AuthScreen.tsx`  
 10. Future: per-user score filtering via RLS on `scores` table
-11. ~~**Delete UX feedback**~~ — **done** (branch `feat/delete-feedback`, 2026-11-24; see Recently Completed → Delete confirmation feedback). Still needs a manual click-through on web + a native device (toast above iOS modals uses `FullWindowOverlay`).  
+11. ~~**Delete UX feedback**~~ — **done** (PR #13). Still worth a manual click-through on a native device (the toast above iOS modals uses `FullWindowOverlay`).  
 

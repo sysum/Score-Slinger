@@ -4,6 +4,21 @@ This file gets a new Claude session (or a new laptop) up to speed quickly. For f
 
 ---
 
+## ▶ Start Here (state at end of session, 2026-11-25)
+
+- **Clean checkpoint.** `main` = production (`f5f96b8`, PR #22). No open PRs, no in-flight branches, nothing waiting on review.
+- **Next scheduled:** dependency batch (c) on/after **2026-12-02** (`PROJECT_STATE.md` → Scheduled). Then pick from `PROJECT_STATE.md` → Next Steps 0b–0e: PostHog Insights in the UI, the pre-save-cancel orphan gap, the Sentry Phase 4 decision, and the Expo SDK 58 upgrade.
+- **Observability:** Sentry org `team-beam` has projects `score-slinger-api` (server: logs, traces, errors) and `score-slinger-web` (client errors/traces, source maps). Every API call carries `X-Request-Id`; search `request_id:<id>` in Sentry. The Sentry CLI is installed and authenticated (`~/.local/bin/sentry`; pass `-f` to bypass its cache). Vercel Hobby runtime logs last only 1 hour, so use Sentry.
+- **Working conventions** (also in Claude's memory):
+  - Orchestrate via subagents, using Fable at High+ for research and planning.
+  - Present decisions as numbered items with bolded recommendations.
+  - Only install package versions ≥7 days old (`npm install --before=<date>`).
+  - Never merge without an explicit "merge PR #N".
+  - Prod data changes need explicit approval: capture the before-state first and use guarded writes.
+- **Prod data (2026-11-25):** 5 scores, all with photos; storage holds only referenced images. Details: `PROJECT_STATE.md` → Prod data cleanup.
+
+---
+
 ## What This App Is
 
 Score Slinger is a mobile \+ web app for logging scores from Marvel's Web Slingers at Disney California Adventure. Users photograph a game scoreboard → AI parses the scores → saved to a shared history.
@@ -24,7 +39,8 @@ Score Slinger is a mobile \+ web app for logging scores from Marvel's Web Slinge
 | Image storage | Supabase Storage, private bucket `scores` |
 | AI | OpenAI `gpt-4.1-mini` vision |
 | Auth | Supabase magic link, PKCE, invite-only |
-| Analytics | PostHog (optional — disabled if `EXPO_PUBLIC_POSTHOG_KEY` not set) |
+| Analytics | PostHog (optional — disabled if `EXPO_PUBLIC_POSTHOG_KEY` not set) — product events only |
+| Observability | Sentry (`@sentry/hono`/`@sentry/node` 11.12.0 server, `@sentry/react-native` 8.35.0 client) — errors, traces, logs; no-op without DSNs |
 
 ---
 
@@ -87,7 +103,19 @@ lib/use-delete-score.ts  Shared delete flow (guard, optimistic cache, 404-as-suc
 
 contexts/ToastContext.tsx App-level toast — ToastProvider + useToast().showToast(message, { type })
 
-lib/query-client.ts      TanStack Query setup \+ apiRequest helper \+ getApiUrl()
+lib/query-client.ts      TanStack Query setup \+ apiRequest (X-Request-Id, ApiError.requestId, api_request_failed)
+
+lib/monitoring.ts        Sentry client init (first import of app/\_layout.tsx) \+ captureException / setMonitoringUser
+
+lib/version-check.ts     Stale-bundle guard — reloads long-lived web tabs onto a new deploy when safe
+
+lib/api-url.ts           getApiUrl() (dependency-free)   ·   lib/haptics.ts  non-fatal impactHaptic()
+
+server/instrument.ts     Sentry server init (first import of api/index.ts \+ server/index.ts)
+
+server/log.ts            Structured logger over Sentry.logger   ·   shared/scrub.ts  secret/image redaction (client \+ server)
+
+docs/SENTRY\_PLAN.md      Sentry plan, decisions, quota math, phases (1–3 done, 4 optional)
 
 lib/supabase.ts          Client Supabase instance (PKCE, AsyncStorage)
 
@@ -152,10 +180,15 @@ All require `Authorization: Bearer <supabase_jwt>`.
 
 ---
 
-## What Was Just Done (as of 2026-11-25)
+## What Was Just Done (as of 2026-11-25) — all merged and live
 
-- **Upload flow bug fixes** (branch `fix/upload-flow-bugs`, stacked on #16; not pushed) — X mid-analysis now cancels (no abandoned auto-save), failed discard/name saves are no longer silent, post-save errors (incl. haptics) no longer show the failure screen, web storage paths get a real extension, and `DELETE /api/scores/:id` removes the image. See PROJECT_STATE.md.
-- **PostHog Phase 2: taxonomy + richer props** (branch `feat/posthog-phase2`, 2026-11-25; in review) — `scoreId` → `score_id` everywhere, image upload split out of parse, richer parse/save/keep/discard props incl. flat gameplay stats, new `api_request_failed` / `history_loaded`, preference person props, swallowed catches → `$exception`; catalog + Insights list in CONTEXT.md → PostHog. Needs a Non-Prod click-through.  
+- **Dependency security** (PR #22): hono 4.13.18, unused zod/ws/@expo/ngrok removed, Expo SDK 56 patch alignment. `npm audit --omit=dev` 36 → 23. The rest is scheduled (batch c) or waits on SDK 58 (accepted risks in CONTEXT.md → Dependency security).
+- **Sentry Phases 1–3** (PRs #19, #21): server logs/traces/errors, client SDK (PostHog no longer captures exceptions), request-id correlation, web source maps uploaded in the Vercel build and deleted before publish. Verified in prod.
+- **Stale-bundle reload guard** (PR #18): fixes the "Legacy API keys are disabled" login failure from tabs left open across the key swap.
+- **Haptics non-blocking** (PR #20).
+- **Prod data cleanup**: Oct 27 score restored, Aug 25 duplicate removed, Sep 29 photo path fixed, 30 orphaned images deleted.
+- **Upload flow bug fixes** (PR #17): X mid-analysis cancels; failed discard and name saves are no longer silent; post-save errors no longer show the failure screen; web storage paths get a real extension; `DELETE /api/scores/:id` removes the image.
+- **PostHog Phase 2** (PR #16): `score_id` everywhere, upload/parse split, richer props including flat gameplay stats, `api_request_failed` / `history_loaded`, preference person props. The Insights still need building in the PostHog UI.  
 - **PostHog Phase 1: foundation** (PR #15, merged 2026-11-24) — tuned client options (small batches, flags/surveys off, error autocapture), super props (`platform`, `environment`, `app_version`, `commit`), identify fixed (once per run, with email + display_name; `signed_in` only on a real sign-in), screen tracking for every route via `usePathname()`, and ErrorBoundary → `$exception`. Details in PROJECT_STATE.md → Recently Completed and CONTEXT.md → PostHog.  
 - **Persist edited played date** (PR #14, merged 2026-11-24) — fixed silent data loss: the upload screen auto-saves the score, then let the user edit the played date, but the edit was only kept in local state. New `PATCH /api/scores/:id/played-date` (owner only, normalizes to ISO, 400/403/404); `app/upload.tsx` now PATCHes it when the score was saved, with "Saving…" spinner, disabled buttons, ref re-entry guard, and an inline error that keeps the modal open and the previous date on failure. New event `played_date_change_failed`; `played_date_changed` gains `location` + `score_id`. Verified against local Supabase (200 persisted, 400, 404, 403 non-owner).  
 - **Delete confirmation feedback** (PR #13, merged 2026-11-24) — both delete modals (History swipe-delete and Score Detail) now show a spinner + "Deleting…", disable Cancel/overlay while the request runs (with a `useRef` guard against double-taps), and stay open until it finishes. Success closes the modal and shows a "Score deleted" toast (History removes the card optimistically; Detail goes back, and the toast stays visible on History). Failure keeps the modal open with an inline error and lets the user retry (History rolls back the removal). A 404 counts as success. Shared logic is in `lib/use-delete-score.ts`; the new app-level toast is `contexts/ToastContext.tsx` + `components/Toast.tsx`, mounted in `app/_layout.tsx`. `apiRequest` now throws `ApiError` (has `.status`). Analytics: `score_deleted` gets `already_deleted: true` on the 404 path; new `score_delete_failed`.  
@@ -175,9 +208,14 @@ Earlier milestones (still current): the UI redesign (expo-router tab + modal arc
 - [ ] Native build verification — app icons/splash (#7) + native-upload fix (#6), both baked at build time  
 - [ ] Vercel previews still point at the prod Supabase project (options: cloud non-prod project, Supabase Branching)  
 - [ ] Device testing against local Supabase (Android emulator `10.0.2.2:54321`; physical phone needs Mac LAN IP)  
-- [ ] Clean up orphaned storage objects in prod (33 objects in `scores` vs 5 rows)  
+- [ ] **Dependency batch (c) on/after 2026-12-02** (clears the critical `shell-quote`; see PROJECT_STATE.md → Scheduled)  
+- [ ] Build the PostHog Insights/dashboard in the PostHog UI  
+- [ ] Pre-save-cancel orphan gap (storage delete policy or server endpoint)  
+- [ ] Decide Sentry Phase 4 (on-error replay)  
+- [ ] Expo SDK 58 upgrade (own project)  
 - [ ] Upgrade Supabase CLI to v3 (currently 2.117.0)  
-- [ ] Observability / error tracking (e.g. Sentry)  
+- [x] Clean up orphaned storage objects in prod — done 2026-11-25  
+- [x] Observability / error tracking — Sentry Phases 1–3 live  
 - [ ] Deferred dep majors: ESLint 9 → 10, TypeScript 5 → 6 (await tooling support)  
 - [ ] Future: profile photo support (avatar circle already in place, shows initials — swap for `<Image>`)  
 - [ ] Future: email/password as second auth method in `components/AuthScreen.tsx`  
@@ -202,4 +240,9 @@ Earlier milestones (still current): the UI redesign (expo-router tab + modal arc
 - **`npm run db:reset` wipes local data** (re-applies migrations + seed) — local only, never `--linked`  
 - **Vercel previews still hit the prod Supabase project** — local can't serve them  
 - **Prod-only users don't exist locally** — use `dev@local.test` or add one in Studio → Authentication → Add user
+- **Vercel env names are case-sensitive** — `SENTRY_AUTH_Token` ≠ `SENTRY_AUTH_TOKEN` (cost one deploy without source maps). The build log line "Sentry: SENTRY_AUTH_TOKEN not set" means the upload was skipped; maps are still deleted
+- **Preview UIs can't call the prod API** (ALLOWED_ORIGINS + Vercel SSO on previews) — verify client-side changes in prod after merge; server-side changes can be checked on previews via Sentry logs (`environment: preview`)
+- **`npx expo install --fix` / `npm update` can pull day-old transitive versions** — run them with `npm install --before=<date 7 days ago>` and check lockfile publish dates
+- **Harmless Vercel log line:** `[Sentry] Initializing the SDK via the Node --require flag is no longer supported…` appears on prod function invocations. It's a warning only; `Sentry.init` continues, and logs, traces and errors still arrive (verified 2026-11-25 on `f5f96b8`). Sentry logs can take a few minutes to show up in queries, so poll before concluding something's missing
+- **Storage objects can't be deleted via SQL** (Supabase `protect_delete` trigger) — use the Storage API (`supabase.storage.from("scores").remove([...])`)
 
