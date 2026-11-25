@@ -25,12 +25,18 @@ No major initiative in flight. The app is healthy and in production; the depende
 ### Post-deploy follow-ups (branch `fix/post-deploy-followups`, 2026-11-24)
 
 - **Blank player names:** the prompt schema said `"name": "<player name or identifier>"`; the board shows no names, so `gpt-4.1-mini` could return `""` and the UI (which falls back to `player.name`) rendered blank labels. Prompt now asks for the capitalized color name, and `normalizePlayerNames()` (in `server/parsePrompt.ts`, called in `/api/parse-score` before the sanity checks) fills any missing/blank name with the capitalized color. Re-validated live (gpt-4.1-mini, 3 runs x 5 boards): all fields exact, names returned as color names every time.
-- **DELETE race:** `DELETE /api/scores/:id` no longer uses `.single()` on the delete step; 0 rows deleted returns 404 `Score not found` (no error log) instead of a 500 from PGRST116. Client-side delete UX is deliberately deferred (see Next Steps item 13).
-- **Docs:** prod `SUPABASE_SERVICE_ROLE_KEY` is now a Supabase secret key (`sb_secret_…`) stored as a Vercel Secret; variable name kept for compatibility, code unchanged. Docs reworded accordingly.
+- **DELETE race:** `DELETE /api/scores/:id` no longer uses `.single()` on the delete step; 0 rows deleted returns 404 `Score not found` (no error log) instead of a 500 from PGRST116. Client-side delete UX is deliberately deferred (see Next Steps item 11).
+- **Docs:** prod `SUPABASE_SERVICE_ROLE_KEY` is now a Supabase secret key (`sb_secret_…`) stored as a Vercel Secret; variable name kept for compatibility, code unchanged. Docs reworded accordingly. (The follow-on client-key swap and legacy-key disable are complete — see Recently Completed → Supabase API key migration.)
 
 ---
 
 ## Recently Completed (shipped to `main`)
+
+### Supabase API key migration (2026-11-24)
+
+The prod Supabase project is fully off the legacy JWT API keys. **Why:** Vercel flagged the service-role key as a readable secret, and the legacy keys were also retiring at the end of 2026. **Approach (zero downtime):** (1) created a new **secret key** (`sb_secret_…`) and stored it as a Vercel **Secret** in `SUPABASE_SERVICE_ROLE_KEY` (Production + Preview), then deployed (PR #11 docs); (2) created a dedicated **publishable key** (`sb_publishable_…`, named `vercel_publishable_key`) and set it in `EXPO_PUBLIC_SUPABASE_ANON_KEY` (Production + Preview) as a normal, non-secret var — it is public by design and ships in the web bundle — then redeployed **without build cache** because `EXPO_PUBLIC_*` is baked in at build time; (3) only then **disabled the legacy `anon` + `service_role` JWT keys**. Variable names are kept for compatibility, so `lib/supabase.ts` and `server/supabase.ts` are unchanged.
+
+**Verification:** the live bundle ships only the publishable key; the legacy anon key now returns 401 "Legacy API keys are disabled"; a real prod upload works end to end (client storage upload via the publishable key + user session, server via the secret key). Existing user sessions were unaffected. The legacy toggle is reversible in the Supabase dashboard (Settings → API Keys) if ever needed. The readable Development-only Vercel vars (`SUPABASE_SERVICE_ROLE_KEY`, `OPENAI_API_KEY`) were deleted; local dev reads `.env`, which points at the local Supabase stack (demo keys from `supabase status -o env`, still legacy-style JWTs locally, which is fine). `.env.prod-reference` (gitignored) now holds the prod secret + publishable keys.
 
 ### Local Supabase dev workflow (PR #9, merged 2026-11-24)
 
@@ -184,7 +190,5 @@ Backlog, no active work:
 8. Future: profile photo support (avatar circle already in place — swap initials for `<Image>`)  
 9. Future: email/password auth as second method in `components/AuthScreen.tsx`  
 10. Future: per-user score filtering via RLS on `scores` table
-11. **Supabase key phase 2** — swap `EXPO_PUBLIC_SUPABASE_ANON_KEY` → `sb_publishable_…` (no-cache rebuild), verify, then disable legacy JWT keys. (Prod server key is already a `sb_secret_…` secret key stored as a Vercel Secret in `SUPABASE_SERVICE_ROLE_KEY`.)  
-12. **Vercel env cleanup** — delete the readable Development-only `SUPABASE_SERVICE_ROLE_KEY` / `OPENAI_API_KEY` vars in Vercel
-13. **Delete UX feedback** — the delete confirmation gives no feedback that the delete is in progress. Users tap Confirm again, causing duplicate DELETE requests (seen in prod 2026-11-24; the server now returns 404 for the duplicate). Add an in-progress state (disabled button / "Deleting…" / spinner) and a success confirmation (e.g. toast or optimistic removal) on both the History swipe-delete modal and the Score Detail delete modal.  
+11. **Delete UX feedback** — the delete confirmation gives no feedback that the delete is in progress. Users tap Confirm again, causing duplicate DELETE requests (seen in prod 2026-11-24; the server now returns 404 for the duplicate). Add an in-progress state (disabled button / "Deleting…" / spinner) and a success confirmation (e.g. toast or optimistic removal) on both the History swipe-delete modal and the Score Detail delete modal.  
 

@@ -149,7 +149,7 @@ contexts/
 
 lib/
 
-  supabase.ts           Client Supabase instance (anon key, PKCE, AsyncStorage)
+  supabase.ts           Client Supabase instance (publishable key in prod / anon demo key locally, PKCE, AsyncStorage)
 
   query-client.ts       getApiUrl(), apiRequest(), getQueryFn(), QueryClient
 
@@ -191,10 +191,10 @@ vercel.json             Build command, output dir, /api/\* routing
 - **Local dev uses a local Supabase stack** (Supabase CLI 2.117.0 + Docker) at `http://127.0.0.1:54321`, not the prod project — local testing no longer writes prod data. Chosen over a cloud non-prod project because the org is on the Pro plan, where every project bills compute (~$10/mo); local is $0 and fully isolated. Mirrors the PostHog Non-Prod split in spirit.  
 - **Known risk:** Vercel preview deployments still point at the prod Supabase project (local can't serve them).  
 - **Two clients:**  
-  - `lib/supabase.ts` — anon key, safe for client bundle (`EXPO_PUBLIC_SUPABASE_ANON_KEY`)  
-  - `server/supabase.ts` — admin key, server only, bypasses RLS (`SUPABASE_SERVICE_ROLE_KEY`). Prod uses a new-style Supabase **secret key** (`sb_secret_…`) stored as a Vercel Secret (Sensitive) for Production + Preview; the variable name is kept for compatibility (code unchanged). Locally it is the local stack's service-role demo key from `supabase status -o env`. The legacy JWT `service_role` key stays enabled until the planned phase-2 key migration (see PROJECT_STATE.md → Next Steps)  
+  - `lib/supabase.ts` — publishable key, safe for client bundle (`EXPO_PUBLIC_SUPABASE_ANON_KEY`). Prod uses a new-style **publishable key** (`sb_publishable_…`, a normal non-secret Vercel var for Production + Preview); the variable name is kept for compatibility (code unchanged). Locally it is the local stack's anon demo key  
+  - `server/supabase.ts` — admin key, server only, bypasses RLS (`SUPABASE_SERVICE_ROLE_KEY`). Prod uses a new-style Supabase **secret key** (`sb_secret_…`) stored as a Vercel Secret (Sensitive) for Production + Preview; the variable name is kept for compatibility (code unchanged). Locally it is the local stack's service-role demo key from `supabase status -o env`. The project's legacy JWT keys (`anon` + `service_role`) are **disabled** in prod (migration complete 2026-11-24; reversible in Supabase → Settings → API Keys); the old `eyJ…` keys return 401  
 - **Auth:** magic link, PKCE flow, sign-ups disabled, users invited manually  
-- **Storage:** private bucket `scores`; service role used for server-side downloads; anon key used for client uploads (policy: authenticated users only)  
+- **Storage:** private bucket `scores`; service role used for server-side downloads; publishable key + user session used for client uploads (policy: authenticated users only)  
 - **DB:** single `scores` table, snake\_case columns, no RLS row policies (access controlled at API layer)
 
 ### OpenAI

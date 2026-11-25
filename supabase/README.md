@@ -27,7 +27,7 @@ Local dev runs against a **local Supabase stack** (Supabase CLI + Docker), not t
 | Studio | `http://127.0.0.1:54323` |
 | Mailpit (local inbox for magic-link emails) | `http://127.0.0.1:54324` |
 
-Run `supabase status -o env` to get the local `SERVICE_ROLE_KEY` and `ANON_KEY` for `.env` (well-known local demo keys, not secrets). In prod, `SUPABASE_SERVICE_ROLE_KEY` holds a Supabase secret key (`sb_secret_…`) stored as a Vercel Secret; the variable name is kept for compatibility and the key stays server-only and RLS-bypassing. Set `SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_URL` to `http://127.0.0.1:54321`. Prod values are kept in `.env.prod-reference` (gitignored).
+Run `supabase status -o env` to get the local `SERVICE_ROLE_KEY` and `ANON_KEY` for `.env` (well-known local demo keys, not secrets). In prod, `SUPABASE_SERVICE_ROLE_KEY` holds a Supabase secret key (`sb_secret_…`) stored as a Vercel Secret; the variable name is kept for compatibility and the key stays server-only and RLS-bypassing. `EXPO_PUBLIC_SUPABASE_ANON_KEY` holds a publishable key (`sb_publishable_…`) in prod (name kept for compatibility), and the project's legacy JWT keys (`anon` + `service_role`) are disabled. Set `SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_URL` to `http://127.0.0.1:54321`. Prod values are kept in `.env.prod-reference` (gitignored).
 
 **Native devices:** iOS Simulator reaches `127.0.0.1`; Android emulator needs `10.0.2.2:54321`; a physical phone needs the Mac's LAN IP in `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_DOMAIN`.
 
