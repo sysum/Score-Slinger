@@ -334,7 +334,7 @@ Local auth is configured in `supabase/config.toml` instead: invite-only (`enable
 - [ ] Future: profile photo support (avatar circle in Profile tab is ready — currently shows initials)  
 - [ ] Known risk: Vercel preview deployments still point at the **prod** Supabase project (local can't serve them) — options: a cloud non-prod project, or Supabase Branching  
 - [ ] Follow-up: test native devices (simulator/emulator/phone) against the local Supabase stack  
-- [ ] Follow-up: a cancel *before* the auto-save still orphans its uploaded image (bucket has no client Storage delete policy; needs a delete policy migration or a server endpoint). Existing prod orphans were cleaned on 2026-11-25 (35 → 5 objects, 278 MB → 21 MB) and deletes/discards now remove their image  
+- [ ] In progress (branch `fix/upload-orphan-cleanup`): images uploaded but never saved (pre-save cancel, parse error, rejected save) are now removed by the client via a new owner-only Storage delete policy (`supabase/migrations/20261125221437_storage_owner_delete_policy.sql`). Needs: PR, then apply the policy to prod **before** deploying. Existing prod orphans were cleaned on 2026-11-25 (35 → 5 objects, 278 MB → 21 MB) and deletes/discards now remove their image  
 - [ ] Follow-up: build the PostHog Insights/dashboard in the PostHog UI (list in `CONTEXT.md` → PostHog → Insights to build)  
 - [ ] Follow-up: upgrade Supabase CLI to v3 (currently 2.117.0)
 - [ ] Follow-up: Sentry Phase 4 (optional replay) needs a decision (`docs/SENTRY_PLAN.md`)
