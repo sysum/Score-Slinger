@@ -210,7 +210,7 @@ Earlier milestones (still current): the UI redesign (expo-router tab + modal arc
 - [ ] Device testing against local Supabase (Android emulator `10.0.2.2:54321`; physical phone needs Mac LAN IP)  
 - [ ] **Dependency batch (c) on/after 2026-12-02** (clears the critical `shell-quote`; see PROJECT_STATE.md → Scheduled)  
 - [ ] Build the PostHog Insights/dashboard in the PostHog UI  
-- [ ] Pre-save-cancel orphan gap (storage delete policy or server endpoint)  
+- [ ] Pre-save-cancel orphan gap — fix on branch `fix/upload-orphan-cleanup`; PR #24; policy already applied to prod 2026-11-27  
 - [ ] Decide Sentry Phase 4 (on-error replay)  
 - [ ] Expo SDK 58 upgrade (own project)  
 - [ ] Upgrade Supabase CLI to v3 (currently 2.117.0)  

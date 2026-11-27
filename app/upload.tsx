@@ -319,6 +319,9 @@ export default function UploadScreen() {
     // Set once the auto-save request succeeds: from then on the score exists,
     // so no later error may show the failure screen.
     let savedResult: ParsedResult | null = null;
+    // Set once the image is in Storage; cleared up in `finally` if no score
+    // ends up referencing it (cancel, parse error, rejected save).
+    let uploadedPath: string | null = null;
     cancelAnalysisRef.current = cancel;
 
     try {
@@ -365,10 +368,9 @@ export default function UploadScreen() {
         const { error } = await supabase.storage.from("scores").upload(storagePath, bytes, { contentType });
         if (error) uploadError = error;
       }
+      if (!uploadError) uploadedPath = storagePath;
 
-      // Canceled before the save: no record to delete. The uploaded image is
-      // left behind; the client has no Storage delete policy, so it can't
-      // remove the object itself (only DELETE /api/scores/:id cleans images).
+      // Canceled before the save: no record to delete; `finally` removes the image.
       if (canceled) return;
       if (uploadError) throw uploadError;
       analytics.track("image_upload_succeeded", { ext, bytes: byteCount, source });
@@ -507,6 +509,17 @@ export default function UploadScreen() {
       }
       setResult({ teamScore: 0, gameName: "Unknown", players: [], error: "Failed to analyze image. Please try again." });
     } finally {
+      // Uploaded but never saved: remove the image (owner-only Storage delete
+      // policy). Skipped after a save network failure, since that save may have
+      // landed server-side and would then point at a deleted image.
+      if (uploadedPath && !savedResult && !(stage === "save" && networkFailed)) {
+        supabase.storage
+          .from("scores")
+          .remove([uploadedPath])
+          .then(({ error }) => {
+            if (error) captureException(error, { tags: { context: "upload_cleanup" } });
+          });
+      }
       if (cancelAnalysisRef.current === cancel) cancelAnalysisRef.current = null;
       if (!canceled) setLoading(false);
     }
